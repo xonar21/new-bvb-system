@@ -206,8 +206,10 @@ func (s *SheetsSync) parseRowData(cells []*sheets.CellData) (*RawLoad, bool) {
 		}
 	}
 
-	// Skip past-dated rows
-	if parsedDate.Before(time.Now().Truncate(24 * time.Hour)) {
+	// Skip past-dated rows (before today in UTC)
+	now := time.Now().UTC()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	if parsedDate.Before(today) {
 		return nil, false
 	}
 

@@ -4,7 +4,7 @@ import "time"
 
 type Load struct {
 	ID                      int64      `json:"id"`
-	PickUpDateCol1          *string    `json:"pick_up_date_col1"`
+	PickUpDateCol1          *time.Time `json:"pick_up_date_col1"`
 	CommodityCol2           *string    `json:"commodity_col2"`
 	PickupDateLocationCol3  *string    `json:"pickup_date_location_col3"`
 	DeliveryDateLocationCol4 *string   `json:"delivery_date_location_col4"`

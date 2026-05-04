@@ -65,6 +65,21 @@ services:
     networks:
       - bvb-network
 
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: bvb-pgadmin
+    restart: unless-stopped
+    ports:
+      - "5050:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@bvb.local
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    depends_on:
+      - postgres
+    networks:
+      - bvb-network
+
   frontend:
     build:
       context: ./frontend
