@@ -2,6 +2,22 @@ import { create } from 'zustand'
 import { apiClient } from '../api/client'
 import type { LoginRequest, LoginResponse, User } from '../types/Load'
 
+function loadFromStorage(): { token: string | null; user: User | null } {
+  const token = localStorage.getItem('auth_token')
+  const userRaw = localStorage.getItem('auth_user')
+  if (token && userRaw) {
+    try {
+      return { token, user: JSON.parse(userRaw) as User }
+    } catch {
+      localStorage.removeItem('auth_token')
+      localStorage.removeItem('auth_user')
+    }
+  }
+  return { token: null, user: null }
+}
+
+const initial = loadFromStorage()
+
 interface AuthState {
   token: string | null
   user: User | null
@@ -9,28 +25,13 @@ interface AuthState {
   error: string | null
   login: (data: LoginRequest) => Promise<void>
   logout: () => void
-  loadFromStorage: () => void
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
-  token: null,
-  user: null,
+  token: initial.token,
+  user: initial.user,
   loading: false,
   error: null,
-
-  loadFromStorage: () => {
-    const token = localStorage.getItem('auth_token')
-    const userRaw = localStorage.getItem('auth_user')
-    if (token && userRaw) {
-      try {
-        const user = JSON.parse(userRaw) as User
-        set({ token, user })
-      } catch {
-        localStorage.removeItem('auth_token')
-        localStorage.removeItem('auth_user')
-      }
-    }
-  },
 
   login: async (data) => {
     set({ loading: true, error: null })

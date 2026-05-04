@@ -71,6 +71,14 @@ export interface LoginResponse {
 }
 
 export interface WSMessage {
-  type: 'load.created' | 'load.updated' | 'load.deleted' | 'load.order-updated' | 'presence'
+  type: 'load.created' | 'load.updated' | 'load.deleted' | 'load.order-updated' | 'presence' | 'cell.focus'
   payload: unknown
+}
+
+export interface CellFocusPayload {
+  load_id: number
+  field: string
+  action: 'focus' | 'blur' | 'editing'
+  user_id?: number
+  user_name?: string
 }

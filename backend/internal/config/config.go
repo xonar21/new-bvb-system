@@ -43,7 +43,7 @@ func Load() *Config {
 
 		GoogleSheetID:        getEnv("GOOGLE_SHEET_ID", ""),
 		GoogleServiceAccount: getEnv("GOOGLE_SERVICE_ACCOUNT", ""),
-		SyncInterval:         getEnvDuration("SYNC_INTERVAL_MINUTES", 15),
+		SyncInterval:         getEnvDuration("SYNC_INTERVAL_MINUTES", 10),
 
 		JWTSecret:   getEnv("JWT_SECRET", "super_secret_key_change_in_prod"),
 		JWTTTL:      getEnvDuration("JWT_TTL_HOURS", 24),

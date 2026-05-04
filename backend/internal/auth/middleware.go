@@ -30,3 +30,13 @@ func NewMiddleware(jwtSecret string) fiber.Handler {
 		return c.Next()
 	}
 }
+
+func RequireRole(role string) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		userRole, ok := c.Locals("user_role").(string)
+		if !ok || userRole != role {
+			return c.Status(403).JSON(fiber.Map{"error": "insufficient permissions"})
+		}
+		return c.Next()
+	}
+}

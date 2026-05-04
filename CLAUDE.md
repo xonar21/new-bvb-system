@@ -109,6 +109,12 @@ C:\job\new-bvb-system
 | PUT | /api/loads/:id | Bearer | Обновить load |
 | DELETE | /api/loads/:id | Bearer | Удалить load |
 | POST | /api/loads/bulk-order | Bearer | Переупорядочить |
+| GET | /api/users | Bearer + root | Список пользователей |
+| GET | /api/users/:id | Bearer + root | Один пользователь |
+| POST | /api/users | Bearer + root | Создать пользователя |
+| PUT | /api/users/:id | Bearer + root | Обновить пользователя |
+| DELETE | /api/users/:id | Bearer + root | Удалить пользователя |
+| POST | /api/sync | Bearer + root | Запустить ручную синхронизацию из AB LOADS |
 | WS | /ws?token=... | JWT query | WebSocket (load.*, presence) |
 
 **Фильтры GET /api/loads:** `date_from`, `date_to`, `status`, `gate_code`, `is_mcc`, `is_bold`, `is_lock`
@@ -124,15 +130,16 @@ C:\job\new-bvb-system
 ## Google Sheets Sync (SyncWorker)
 
 - Читает лист **"AB LOADS"** из Google Sheets
-- Запускается при старте, потом каждые **15 минут**
+- Запускается при старте, потом каждые **10 минут**
 - **Пропускает past-dated** строки
 - **Зелёные строки** (#93c47d) → статус `pick up`, не импортируются
 - **Gate code normalization**: ltrim leading zeros
 - **Rate interval**: rate + offset по таблице (50-50, 100-150, и т.д.)
 - **MCC detection**: notes содержит "mcc cans" или "mcc bottles"
 - **HOT**: колонка H содержит "HOT"
-- **Batch upsert** с `ON CONFLICT (gate_code_col6) DO UPDATE`
-- **Lock protection**: `WHERE loads.is_lock = false`
+- **Batch insert** с `ON CONFLICT (gate_code_col6) DO NOTHING` — только новые записи, существующие не перезаписываются
+- **Ручной запуск**: `POST /api/sync` (root) через кнопку "Sync Now" в боковой панели
+- **Lock protection**: зелёные строки обновляют статус только если `is_lock = false`
 
 ## Таблица loads (18 колонок)
 
@@ -144,7 +151,7 @@ pick_up_date_col1, commodity_col2, pickup_date_location_col3, delivery_date_loca
 |-------|----------|------|
 | user1@bvb.local | password1 | user |
 | user2@bvb.local | password2 | user |
-| admin@bvb.local | admin123 | admin |
+| root@bvb.local | root123 | root |
 
 ## Запуск
 
@@ -188,6 +195,9 @@ docker run --rm --network=new-bvb-system_bvb-network -e MYSQL_HOST=host.docker.i
 - [x] Google Sheets синхронизация (service account настроен)
 - [x] Docker: production + dev режимы (hot-reload)
 - [x] pgAdmin для просмотра БД
+- [x] Sidebar navigation (Loads / Users Management)
+- [x] Role-based access (root / user)
+- [x] Users Management (CRUD)
 - [ ] Drag & drop reorder строк
 - [ ] Cell formatting (bold/color/font-size)
 - [ ] Cell focus whispers

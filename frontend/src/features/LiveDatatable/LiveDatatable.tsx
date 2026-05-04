@@ -28,7 +28,7 @@ export function LiveDatatable() {
     [dateFrom, dateTo, search],
   )
 
-  const { data: loads, isLoading } = useLoads(filters)
+  const { data: loads, isLoading, isError, error } = useLoads(filters)
   const updateMutation = useUpdateLoad()
 
   const table = useReactTable({
@@ -130,6 +130,12 @@ export function LiveDatatable() {
               <tr>
                 <td colSpan={columns.length} style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
                   Loading...
+                </td>
+              </tr>
+            ) : isError ? (
+              <tr>
+                <td colSpan={columns.length} style={{ textAlign: 'center', padding: '40px', color: '#c62828', fontSize: '14px' }}>
+                  Failed to load: {error instanceof Error ? error.message : 'Unknown error'}
                 </td>
               </tr>
             ) : table.getRowModel().rows.length === 0 ? (

@@ -106,7 +106,7 @@ func (s *SheetsSync) Sync(ctx context.Context) error {
 		s.markGreenRows(ctx, greenRowGateCodes)
 	}
 
-	// 4. Transform and upsert non-green loads
+	// 4. Transform and insert only new non-green loads
 	if len(allLoads) > 0 {
 		if err := s.processLoads(ctx, allLoads); err != nil {
 			return fmt.Errorf("process loads: %w", err)
@@ -291,10 +291,10 @@ func (s *SheetsSync) processLoads(ctx context.Context, rawLoads []RawLoad) error
 		rawLoads[i].IsBold = strings.ToUpper(strings.TrimSpace(l.Hot)) == "HOT"
 	}
 
-	return s.batchUpsert(ctx, rawLoads)
+	return s.batchInsertNew(ctx, rawLoads)
 }
 
-func (s *SheetsSync) batchUpsert(ctx context.Context, loads []RawLoad) error {
+func (s *SheetsSync) batchInsertNew(ctx context.Context, loads []RawLoad) error {
 	batch := &pgx.Batch{}
 
 	for _, load := range loads {
@@ -305,20 +305,7 @@ func (s *SheetsSync) batchUpsert(ctx context.Context, loads []RawLoad) error {
 				rate_col7, rate_min, rate_max, is_bold, is_mcc, note_mcc,
 				created_at, updated_at
 			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
-			ON CONFLICT (gate_code_col6) DO UPDATE SET
-				pick_up_date_col1 = EXCLUDED.pick_up_date_col1,
-				commodity_col2 = EXCLUDED.commodity_col2,
-				pickup_date_location_col3 = EXCLUDED.pickup_date_location_col3,
-				delivery_date_location_col4 = EXCLUDED.delivery_date_location_col4,
-				assigned_user_col5 = EXCLUDED.assigned_user_col5,
-				rate_col7 = EXCLUDED.rate_col7,
-				rate_min = EXCLUDED.rate_min,
-				rate_max = EXCLUDED.rate_max,
-				is_bold = EXCLUDED.is_bold,
-				is_mcc = EXCLUDED.is_mcc,
-				note_mcc = EXCLUDED.note_mcc,
-				updated_at = NOW()
-			WHERE loads.is_lock = false
+			ON CONFLICT (gate_code_col6) DO NOTHING
 		`,
 			load.PickUpDate, load.Commodity, load.PickupLocation,
 			load.DeliveryLocation, load.AssignedUser, load.GateCode,
@@ -331,7 +318,7 @@ func (s *SheetsSync) batchUpsert(ctx context.Context, loads []RawLoad) error {
 
 	for i := 0; i < batch.Len(); i++ {
 		if _, err := results.Exec(); err != nil {
-			return fmt.Errorf("batch upsert row %d: %w", i, err)
+			return fmt.Errorf("batch insert row %d: %w", i, err)
 		}
 	}
 

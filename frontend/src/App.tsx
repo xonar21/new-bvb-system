@@ -1,9 +1,11 @@
-import { useEffect } from 'react'
+import { useState } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useAuthStore } from './store/authStore'
 import { useWebSocket } from './hooks/useWebSocket'
 import { LoginPage } from './components/LoginPage'
+import { Layout } from './components/Layout'
 import { LiveDatatable } from './features/LiveDatatable/LiveDatatable'
+import { UsersManagement } from './features/UsersManagement/UsersManagement'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -15,11 +17,8 @@ const queryClient = new QueryClient({
 })
 
 function AppContent() {
-  const { token, user, logout, loadFromStorage } = useAuthStore()
-
-  useEffect(() => {
-    loadFromStorage()
-  }, [loadFromStorage])
+  const { token, user } = useAuthStore()
+  const [activeTab, setActiveTab] = useState('loads')
 
   useWebSocket(token)
 
@@ -27,39 +26,20 @@ function AppContent() {
     return <LoginPage />
   }
 
+  const renderContent = () => {
+    switch (activeTab) {
+      case 'users':
+        return <UsersManagement />
+      case 'loads':
+      default:
+        return <LiveDatatable />
+    }
+  }
+
   return (
-    <div style={{ minHeight: '100vh', background: '#fafafa' }}>
-      <header
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          padding: '8px 16px',
-          background: '#fff',
-          borderBottom: '1px solid #ddd',
-          fontFamily: 'system-ui, sans-serif',
-        }}
-      >
-        <span style={{ fontWeight: 700, fontSize: '16px' }}>BVB Freight</span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '13px' }}>
-          <span style={{ color: '#666' }}>{user.name} ({user.role})</span>
-          <button
-            onClick={logout}
-            style={{
-              padding: '4px 12px',
-              borderRadius: '4px',
-              border: '1px solid #ccc',
-              background: '#fff',
-              cursor: 'pointer',
-              fontSize: '13px',
-            }}
-          >
-            Sign Out
-          </button>
-        </div>
-      </header>
-      <LiveDatatable />
-    </div>
+    <Layout activeTab={activeTab} onTabChange={setActiveTab}>
+      {renderContent()}
+    </Layout>
   )
 }
 

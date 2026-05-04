@@ -79,7 +79,7 @@ func seedUsers(pool *pgxpool.Pool, ctx context.Context) {
 	users := []seedUser{
 		{"user1@bvb.local", "password1", "User One", "user"},
 		{"user2@bvb.local", "password2", "User Two", "user"},
-		{"admin@bvb.local", "admin123", "Administrator", "admin"},
+		{"root@bvb.local", "root123", "Root Admin", "root"},
 	}
 
 	for _, u := range users {

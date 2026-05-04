@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"encoding/json"
 	"log"
 	"time"
 
@@ -15,18 +16,20 @@ const (
 )
 
 type Client struct {
-	hub    *Hub
-	conn   *websocket.Conn
-	send   chan []byte
-	UserID int64
+	hub      *Hub
+	conn     *websocket.Conn
+	send     chan []byte
+	UserID   int64
+	UserName string
 }
 
-func NewClient(hub *Hub, conn *websocket.Conn, userID int64) *Client {
+func NewClient(hub *Hub, conn *websocket.Conn, userID int64, userName string) *Client {
 	return &Client{
-		hub:    hub,
-		conn:   conn,
-		send:   make(chan []byte, 256),
-		UserID: userID,
+		hub:      hub,
+		conn:     conn,
+		send:     make(chan []byte, 256),
+		UserID:   userID,
+		UserName: userName,
 	}
 }
 
@@ -44,12 +47,38 @@ func (c *Client) ReadPump() {
 	})
 
 	for {
-		_, _, err := c.conn.ReadMessage()
+		_, message, err := c.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
 				log.Printf("ws read error: %v", err)
 			}
 			break
+		}
+
+		var raw struct {
+			Type    string          `json:"type"`
+			Payload json.RawMessage `json:"payload"`
+		}
+		if err := json.Unmarshal(message, &raw); err != nil {
+			continue
+		}
+		if raw.Type != "cell.focus" {
+			continue
+		}
+
+		var payload map[string]interface{}
+		if err := json.Unmarshal(raw.Payload, &payload); err != nil {
+			continue
+		}
+		payload["user_id"] = c.UserID
+		payload["user_name"] = c.UserName
+
+		enriched := Message{
+			Type:    "cell.focus",
+			Payload: payload,
+		}
+		if data, err := enriched.Bytes(); err == nil {
+			c.hub.broadcast <- data
 		}
 	}
 }

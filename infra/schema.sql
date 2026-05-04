@@ -50,5 +50,5 @@ CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 INSERT INTO users (email, password_hash, name, role) VALUES
     ('user1@bvb.local', '', 'User One', 'user'),
     ('user2@bvb.local', '', 'User Two', 'user'),
-    ('admin@bvb.local', '', 'Administrator', 'admin')
+    ('root@bvb.local', '', 'Root Admin', 'root')
 ON CONFLICT (email) DO NOTHING;

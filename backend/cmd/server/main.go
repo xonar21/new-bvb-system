@@ -29,12 +29,14 @@ func main() {
 
 	db.Migrate(pgPool)
 
+	var sheetSync *sheets.SheetsSync
+
 	if cfg.GoogleServiceAccount != "" && cfg.GoogleSheetID != "" {
 		sheetsClient, err := sheets.NewClient(cfg.GoogleServiceAccount)
 		if err != nil {
 			log.Printf("Google Sheets client init failed (sync disabled): %v", err)
 		} else {
-			sheetSync := sheets.NewSync(sheetsClient, pgPool, cfg.GoogleSheetID)
+			sheetSync = sheets.NewSync(sheetsClient, pgPool, cfg.GoogleSheetID)
 
 			go func() {
 				ticker := time.NewTicker(cfg.SyncInterval)
@@ -84,25 +86,29 @@ func main() {
 	authHandler := auth.NewHandler(userRepo, cfg.JWTSecret, cfg.JWTTTL)
 	app.Post("/api/auth/login", authHandler.Login)
 
-	app.Get("/ws", websocket.New(func(c *websocket.Conn) {
-		userID := c.Locals("user_id").(int64)
-		ws.HandleWS(c, wsHub, userID)
-	}, websocket.Config{
-		Filter: func(c *fiber.Ctx) bool {
-			token := c.Query("token")
-			if token == "" {
-				return false
-			}
-			claims, err := auth.ValidateToken(cfg.JWTSecret, token)
-			if err != nil {
-				return false
-			}
-			c.Locals("user_id", claims.UserID)
-			c.Locals("user_email", claims.Email)
-			c.Locals("user_role", claims.UserRole)
-			return true
-		},
-	}))
+	usersHandler := users.NewHandler(userRepo)
+	usersHandler.RegisterRoutes(api, authMW, auth.RequireRole("root"))
+
+	if sheetSync != nil {
+		syncHandler := sheets.NewHandler(sheetSync)
+		api.Post("/sync", authMW, auth.RequireRole("root"), syncHandler.TriggerSync)
+	}
+
+	app.Get("/ws", func(c *fiber.Ctx) error {
+		token := c.Query("token")
+		if token == "" {
+			return c.Status(401).JSON(fiber.Map{"error": "missing token"})
+		}
+		claims, err := auth.ValidateToken(cfg.JWTSecret, token)
+		if err != nil {
+			return c.Status(401).JSON(fiber.Map{"error": "invalid or expired token"})
+		}
+
+		handler := websocket.New(func(conn *websocket.Conn) {
+			ws.HandleWS(conn, wsHub, claims.UserID, claims.Email)
+		})
+		return handler(c)
+	})
 
 	log.Printf("Server starting on :%s", cfg.Port)
 	if err := app.Listen(":" + cfg.Port); err != nil {

@@ -109,8 +109,7 @@ func (h *Handler) Update(c *fiber.Ctx) error {
 		return c.Status(404).JSON(fiber.Map{"error": "not found"})
 	}
 
-	userID, _ := c.Locals("user_id").(int64)
-	go h.hub.BroadcastToOthers(userID, ws.Message{
+	go h.hub.Broadcast(ws.Message{
 		Type:    "load.updated",
 		Payload: load,
 	})
@@ -136,8 +135,7 @@ func (h *Handler) Delete(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	userID, _ := c.Locals("user_id").(int64)
-	go h.hub.BroadcastToOthers(userID, ws.Message{
+	go h.hub.Broadcast(ws.Message{
 		Type:    "load.deleted",
 		Payload: fiber.Map{"id": id},
 	})
@@ -159,8 +157,7 @@ func (h *Handler) BulkOrder(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	userID, _ := c.Locals("user_id").(int64)
-	go h.hub.BroadcastToOthers(userID, ws.Message{
+	go h.hub.Broadcast(ws.Message{
 		Type:    "load.order-updated",
 		Payload: req.Items,
 	})

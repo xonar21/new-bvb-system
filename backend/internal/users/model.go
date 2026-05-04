@@ -23,3 +23,18 @@ type LoginResponse struct {
 	Token string `json:"token"`
 	User  User   `json:"user"`
 }
+
+type CreateUserRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	Name     string `json:"name"`
+	Role     string `json:"role"`
+}
+
+type UpdateUserRequest struct {
+	Email    *string `json:"email,omitempty"`
+	Password *string `json:"password,omitempty"`
+	Name     *string `json:"name,omitempty"`
+	Role     *string `json:"role,omitempty"`
+	IsBlocked *bool  `json:"is_blocked,omitempty"`
+}

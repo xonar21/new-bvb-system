@@ -32,6 +32,11 @@ async function request<T>(
   })
 
   if (!res.ok) {
+    if (res.status === 401) {
+      localStorage.removeItem('auth_token')
+      localStorage.removeItem('auth_user')
+      window.location.reload()
+    }
     const body = await res.json().catch(() => ({ error: res.statusText }))
     throw new ApiError(body.error || res.statusText, res.status)
   }
