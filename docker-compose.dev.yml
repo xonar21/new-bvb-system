@@ -34,8 +34,8 @@ services:
     ports:
       - "5173:5173"
     environment:
-      VITE_API_URL: http://backend:3001
-      VITE_WS_URL: ws://backend:3001
+      VITE_PROXY_API: http://backend:3001
+      VITE_PROXY_WS: ws://backend:3001
     volumes:
       - ./frontend:/app
       - /app/node_modules
