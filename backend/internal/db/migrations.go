@@ -5,6 +5,7 @@ import (
 	"log"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func Migrate(pool *pgxpool.Pool) {
@@ -64,4 +65,48 @@ func Migrate(pool *pgxpool.Pool) {
 	}
 
 	log.Println("Database migration completed")
+	seedUsers(pool, ctx)
+}
+
+func seedUsers(pool *pgxpool.Pool, ctx context.Context) {
+	type seedUser struct {
+		Email    string
+		Password string
+		Name     string
+		Role     string
+	}
+
+	users := []seedUser{
+		{"user1@bvb.local", "password1", "User One", "user"},
+		{"user2@bvb.local", "password2", "User Two", "user"},
+		{"admin@bvb.local", "admin123", "Administrator", "admin"},
+	}
+
+	for _, u := range users {
+		var exists bool
+		err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)`, u.Email).Scan(&exists)
+		if err != nil {
+			log.Printf("Seed check failed for %s: %v", u.Email, err)
+			continue
+		}
+		if exists {
+			continue
+		}
+
+		hash, err := bcrypt.GenerateFromPassword([]byte(u.Password), bcrypt.DefaultCost)
+		if err != nil {
+			log.Printf("Seed hash failed for %s: %v", u.Email, err)
+			continue
+		}
+
+		_, err = pool.Exec(ctx,
+			`INSERT INTO users (email, password_hash, name, role) VALUES ($1, $2, $3, $4)`,
+			u.Email, string(hash), u.Name, u.Role)
+		if err != nil {
+			log.Printf("Seed insert failed for %s: %v", u.Email, err)
+			continue
+		}
+
+		log.Printf("Seeded user: %s (%s)", u.Email, u.Role)
+	}
 }
