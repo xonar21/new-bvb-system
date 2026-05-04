@@ -84,9 +84,24 @@ func main() {
 	authHandler := auth.NewHandler(userRepo, cfg.JWTSecret, cfg.JWTTTL)
 	app.Post("/api/auth/login", authHandler.Login)
 
-	app.Get("/ws", authMW, websocket.New(func(c *websocket.Conn) {
+	app.Get("/ws", websocket.New(func(c *websocket.Conn) {
 		userID := c.Locals("user_id").(int64)
 		ws.HandleWS(c, wsHub, userID)
+	}, websocket.Config{
+		Filter: func(c *fiber.Ctx) bool {
+			token := c.Query("token")
+			if token == "" {
+				return false
+			}
+			claims, err := auth.ValidateToken(cfg.JWTSecret, token)
+			if err != nil {
+				return false
+			}
+			c.Locals("user_id", claims.UserID)
+			c.Locals("user_email", claims.Email)
+			c.Locals("user_role", claims.UserRole)
+			return true
+		},
 	}))
 
 	log.Printf("Server starting on :%s", cfg.Port)
