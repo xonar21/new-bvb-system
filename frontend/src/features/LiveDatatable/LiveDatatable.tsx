@@ -41,8 +41,19 @@ export function LiveDatatable() {
     getPaginationRowModel: getPaginationRowModel(),
   })
 
+  const columnToField: Record<string, string> = {
+    pick_up_date: 'pick_up_date_col1',
+    commodity: 'commodity_col2',
+    pickup_location: 'pickup_date_location_col3',
+    delivery_location: 'delivery_date_location_col4',
+    assigned_user: 'assigned_user_col5',
+    rate: 'rate_col7',
+    notes: 'note_mcc',
+  }
+
   const handleUpdate = (id: number, key: string, value: string | number | null) => {
-    updateMutation.mutate({ id, data: { [key]: value } })
+    const field = columnToField[key] ?? key
+    updateMutation.mutate({ id, data: { [field]: value } })
   }
 
   const pageCount = table.getPageCount()
