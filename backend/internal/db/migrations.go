@@ -83,13 +83,9 @@ func seedUsers(pool *pgxpool.Pool, ctx context.Context) {
 	}
 
 	for _, u := range users {
-		var exists bool
-		err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)`, u.Email).Scan(&exists)
-		if err != nil {
-			log.Printf("Seed check failed for %s: %v", u.Email, err)
-			continue
-		}
-		if exists {
+		var passwordHash string
+		err := pool.QueryRow(ctx, `SELECT password_hash FROM users WHERE email = $1`, u.Email).Scan(&passwordHash)
+		if err == nil && passwordHash != "" {
 			continue
 		}
 
@@ -100,10 +96,11 @@ func seedUsers(pool *pgxpool.Pool, ctx context.Context) {
 		}
 
 		_, err = pool.Exec(ctx,
-			`INSERT INTO users (email, password_hash, name, role) VALUES ($1, $2, $3, $4)`,
+			`INSERT INTO users (email, password_hash, name, role) VALUES ($1, $2, $3, $4)
+			 ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash`,
 			u.Email, string(hash), u.Name, u.Role)
 		if err != nil {
-			log.Printf("Seed insert failed for %s: %v", u.Email, err)
+			log.Printf("Seed upsert failed for %s: %v", u.Email, err)
 			continue
 		}
 
