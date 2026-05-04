@@ -3,22 +3,22 @@
 ## Статус выполнения
 
 ### Фаза 0: Инфраструктура проекта
-- [ ] **Task 0.1**: Создать структуру директорий проекта (backend/, frontend/, infra/)
-- [ ] **Task 0.2**: Docker Compose (PostgreSQL + Redis) + схема БД
-- [ ] **Task 0.3**: Go module init + загрузка зависимостей
+- [x] **Task 0.1**: Создать структуру директорий проекта (backend/, frontend/, infra/)
+- [x] **Task 0.2**: Docker Compose (PostgreSQL + Redis) + схема БД
+- [x] **Task 0.3**: Go module init + загрузка зависимостей
 
 ### Фаза 1: Go Backend — Config & DB
-- [ ] **Task 1.1**: Пакет config (чтение env vars)
-- [ ] **Task 1.2**: Пакет db (pgxpool подключение + миграции)
-- [ ] **Task 1.3**: Пакет sheets (Google Sheets API клиент + sync worker)
-- [ ] **Task 1.4**: Пакет loads (model, repository, handler, validator, logic)
-- [ ] **Task 1.5**: Пакет ws (WebSocket Hub + Client + Messages)
-- [ ] **Task 1.6**: Пакет auth (JWT issue/verify + middleware)
-- [ ] **Task 1.7**: Пакет users (model, repository, handler)
-- [ ] **Task 1.8**: main.go — сборка всего вместе
+- [x] **Task 1.1**: Пакет config (чтение env vars)
+- [x] **Task 1.2**: Пакет db (pgxpool подключение + миграции)
+- [x] **Task 1.3**: Пакет sheets (Google Sheets API клиент + sync worker)
+- [x] **Task 1.4**: Пакет loads (model, repository, handler, validator, logic)
+- [x] **Task 1.5**: Пакет ws (WebSocket Hub + Client + Messages)
+- [x] **Task 1.6**: Пакет auth (JWT issue/verify + middleware)
+- [x] **Task 1.7**: Пакет users (model, repository, handler)
+- [x] **Task 1.8**: main.go — сборка всего вместе
 
 ### Фаза 2: React Frontend
-- [ ] **Task 2.1**: Vite + React + TS инициализация + зависимости
+- [x] **Task 2.1**: Vite + React + TS инициализация + зависимости
 - [ ] **Task 2.2**: Types, API client, env config
 - [ ] **Task 2.3**: Hooks (useLoads — TanStack Query, useWebSocket — native WS)
 - [ ] **Task 2.4**: Stores (authStore, wsStore — Zustand)
@@ -36,3 +36,9 @@
 - [ ] — не сделано
 - [x] — сделано
 - 🔄 — в процессе
+
+---
+
+## Что сделано
+- Полностью Go backend: структура пакетов, config, db, sheets sync, loads API, WebSocket hub, JWT auth
+- Frontend инициализирован: Vite + React 19 + TS + зависимости установлены
