@@ -11,7 +11,6 @@ export function LoadCell({ cell, onUpdate }: LoadCellProps) {
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState(String(cell.getValue() ?? ''))
   const inputRef = useRef<HTMLInputElement>(null)
-  const timerRef = useRef<ReturnType<typeof setTimeout>>()
 
   useEffect(() => {
     if (!editing) {

@@ -60,7 +60,7 @@ export function useUpdateLoad() {
       const prev = queryClient.getQueryData<Load[]>(['loads'])
 
       queryClient.setQueryData<Load[]>(['loads'], (old) =>
-        old?.map((l) => (l.id === id ? { ...l, ...data } : l)) ?? [],
+        old?.map((l) => (l.id === id ? { ...l, ...data } as Load : l)) ?? [],
       )
 
       return { prev }

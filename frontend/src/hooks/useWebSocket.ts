@@ -12,7 +12,7 @@ interface OnlineUser {
 
 export function useWebSocket(token: string | null) {
   const wsRef = useRef<WebSocket | null>(null)
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout>>()
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const queryClient = useQueryClient()
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([])
   const [isConnected, setIsConnected] = useState(false)
