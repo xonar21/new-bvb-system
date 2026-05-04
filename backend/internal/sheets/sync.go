@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"bvb-datatable/internal/loads"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/api/sheets/v4"
@@ -256,7 +258,7 @@ func (s *SheetsSync) retryFetch(ctx context.Context, rangeStr string) error {
 
 func (s *SheetsSync) markGreenRows(ctx context.Context, gateCodes []string) {
 	for _, gc := range gateCodes {
-		normalized := normalizeGateCode(gc)
+		normalized := loads.NormalizeGateCode(gc)
 		_, err := s.db.Exec(ctx,
 			`UPDATE loads SET status = 'pick up', updated_at = NOW() WHERE gate_code_col6 = $1 AND is_lock = false`,
 			normalized)
@@ -266,15 +268,15 @@ func (s *SheetsSync) markGreenRows(ctx context.Context, gateCodes []string) {
 	}
 }
 
-func (s *SheetsSync) processLoads(ctx context.Context, loads []RawLoad) error {
-	for i, load := range loads {
-		loads[i].GateCode = normalizeGateCode(load.GateCode)
-		loads[i].IsMCC = detectMCC(load.Notes)
-		loads[i].RateMin, loads[i].RateMax = getRateInterval(load.Rate)
-		loads[i].IsBold = strings.ToUpper(strings.TrimSpace(load.Hot)) == "HOT"
+func (s *SheetsSync) processLoads(ctx context.Context, rawLoads []RawLoad) error {
+	for i, l := range rawLoads {
+		rawLoads[i].GateCode = loads.NormalizeGateCode(l.GateCode)
+		rawLoads[i].IsMCC = loads.DetectMCC(l.Notes)
+		rawLoads[i].RateMin, rawLoads[i].RateMax = loads.GetRateInterval(l.Rate)
+		rawLoads[i].IsBold = strings.ToUpper(strings.TrimSpace(l.Hot)) == "HOT"
 	}
 
-	return s.batchUpsert(ctx, loads)
+	return s.batchUpsert(ctx, rawLoads)
 }
 
 func (s *SheetsSync) batchUpsert(ctx context.Context, loads []RawLoad) error {
@@ -321,31 +323,4 @@ func (s *SheetsSync) batchUpsert(ctx context.Context, loads []RawLoad) error {
 	return results.Close()
 }
 
-func normalizeGateCode(gateCode string) string {
-	return strings.TrimLeft(gateCode, "0")
-}
 
-func detectMCC(notes string) bool {
-	if notes == "" {
-		return false
-	}
-	lower := strings.ToLower(strings.TrimSpace(notes))
-	return strings.Contains(lower, "mcc cans") || strings.Contains(lower, "mcc bottles")
-}
-
-func getRateInterval(rate int) (int, int) {
-	switch {
-	case rate <= 799:
-		return rate + 50, rate + 50
-	case rate <= 1199:
-		return rate + 50, rate + 100
-	case rate <= 1799:
-		return rate + 100, rate + 150
-	case rate <= 2399:
-		return rate + 100, rate + 200
-	case rate <= 2999:
-		return rate + 150, rate + 250
-	default:
-		return rate + 200, rate + 300
-	}
-}
