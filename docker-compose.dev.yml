@@ -18,7 +18,10 @@ services:
       CORS_ORIGINS: "http://localhost:5173"
       REDIS_ADDR: "redis:6379"
       ENV: "development"
+      GOOGLE_SHEET_ID: "1_Ri5kpUwYzIXW1VfJ4r7qARAEgYbLN4CSNLfMqkKoss"
+      GOOGLE_SERVICE_ACCOUNT: "/app/service-account.json"
     volumes:
+      - ./backend/service-account.json:/app/service-account.json:ro
       - ./backend:/app
     depends_on:
       postgres:
