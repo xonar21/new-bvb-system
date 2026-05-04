@@ -1,0 +1,47 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: bvb-backend-dev
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: "3001"
+      PG_HOST: postgres
+      PG_PORT: "5432"
+      PG_DB: bvb_datatable
+      PG_USER: postgres
+      PG_PASSWORD: secret
+      PG_SSLMODE: disable
+      JWT_SECRET: "super_secret_key_change_in_prod"
+      CORS_ORIGINS: "http://localhost:5173"
+      REDIS_ADDR: "redis:6379"
+      ENV: "development"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - bvb-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: bvb-frontend-dev
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: http://backend:3001
+      VITE_WS_URL: ws://backend:3001
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - bvb-network
