@@ -19,16 +19,16 @@
 
 ### Фаза 2: React Frontend
 - [x] **Task 2.1**: Vite + React + TS инициализация + зависимости
-- [ ] **Task 2.2**: Types, API client, env config
+- [x] **Task 2.2**: Types, API client, env config
 - [ ] **Task 2.3**: Hooks (useLoads — TanStack Query, useWebSocket — native WS)
 - [ ] **Task 2.4**: Stores (authStore, wsStore — Zustand)
 - [ ] **Task 2.5**: Компоненты (LiveDatatable, LoadRow, LoadCell, columns, OnlineUsersBar)
 - [ ] **Task 2.6**: Интеграция (App.tsx, main.tsx, роутинг, логин)
 
 ### Фаза 3: Деплой
-- [ ] **Task 3.1**: Nginx reverse proxy config
-- [ ] **Task 3.2**: Dockerfile для Go сервиса
-- [ ] **Task 3.3**: .env примеры
+- [x] **Task 3.1**: Nginx reverse proxy config (для frontend)
+- [x] **Task 3.2**: Dockerfile для Go сервиса и React
+- [x] **Task 3.3**: .env примеры + Docker dev mode (air + Vite HMR)
 
 ---
 
