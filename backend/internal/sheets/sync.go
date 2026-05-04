@@ -159,7 +159,6 @@ func (s *SheetsSync) parseRowData(cells []*sheets.CellData) (*RawLoad, bool) {
 		return nil, false
 	}
 
-	// Extract values from cells (handle both stringValue and numberValue)
 	getString := func(idx int) string {
 		if idx >= len(cells) || cells[idx] == nil || cells[idx].EffectiveValue == nil {
 			return ""
@@ -186,32 +185,46 @@ func (s *SheetsSync) parseRowData(cells []*sheets.CellData) (*RawLoad, bool) {
 		return int(f)
 	}
 
-	pickupDateStr := getString(0)
-	gateCode := getString(5)
-
-	// Must have date and gate code
-	if pickupDateStr == "" || gateCode == "" {
-		return nil, false
+	getDate := func(idx int) *time.Time {
+		if idx >= len(cells) || cells[idx] == nil || cells[idx].EffectiveValue == nil {
+			return nil
+		}
+		ev := cells[idx].EffectiveValue
+		switch {
+		case ev.NumberValue != nil:
+			serial := *ev.NumberValue
+			if serial < 1 {
+				return nil
+			}
+			epoch := time.Date(1899, 12, 30, 0, 0, 0, 0, time.UTC)
+			t := epoch.Add(time.Duration(serial) * 24 * time.Hour)
+			return &t
+		case ev.StringValue != nil:
+			for _, format := range []string{"1/2/2006", "1/2/06", "2006-01-02"} {
+				t, err := time.Parse(format, *ev.StringValue)
+				if err == nil {
+					return &t
+				}
+			}
+		}
+		return nil
 	}
 
-	// Check if green row
-	isGreen := s.isGreenRow(cells)
+	parsedDate := getDate(0)
+	gateCode := getString(5)
 
-	// Parse date
-	parsedDate, err := time.Parse("1/2/2006", pickupDateStr)
-	if err != nil {
-		parsedDate, err = time.Parse("1/2/06", pickupDateStr)
-		if err != nil {
-			return nil, false
-		}
+	if parsedDate == nil || gateCode == "" {
+		return nil, false
 	}
 
 	// Skip past-dated rows (before today in UTC)
 	now := time.Now().UTC()
-	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-	if parsedDate.Before(today) {
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	if parsedDate.Before(todayStart) {
 		return nil, false
 	}
+
+	isGreen := s.isGreenRow(cells)
 
 	rate := getInt(6)
 
@@ -225,7 +238,7 @@ func (s *SheetsSync) parseRowData(cells []*sheets.CellData) (*RawLoad, bool) {
 		Rate:             rate,
 		Hot:              getString(7),
 		Notes:            getString(8),
-		ParsedPickUpDate: parsedDate,
+		ParsedPickUpDate: *parsedDate,
 		IsGreenRow:       isGreen,
 	}
 
