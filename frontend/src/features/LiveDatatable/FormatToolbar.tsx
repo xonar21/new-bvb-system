@@ -5,11 +5,20 @@ import { useSelectionStore } from '../../store/selectionStore'
 import { ColorPicker } from './ColorPicker'
 
 const btnBase: React.CSSProperties = {
-  width: 28, height: 28,
-  border: '1px solid #dadce0', borderRadius: '4px',
-  background: '#fff', cursor: 'pointer', outline: 'none',
-  display: 'flex', alignItems: 'center', justifyContent: 'center',
-  fontSize: '13px', color: '#3c4043', padding: 0,
+  width: 28,
+  height: 28,
+  border: '1px solid #dadce0',
+  borderRadius: '4px',
+  background: '#fff',
+  cursor: 'pointer',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontSize: '13px',
+  color: '#3c4043',
+  padding: 0,
+  outline: 'none',
+  transition: 'background-color 0.15s, border-color 0.15s',
 }
 
 const btnActive: React.CSSProperties = {
@@ -214,7 +223,7 @@ export function FormatToolbar({ orderedLoadIds: _orderedLoadIds, loads }: Format
           onChange={(e) => setFontSizeInput(e.target.value)}
           onBlur={handleFontSizeInput}
           onKeyDown={(e) => { if (e.key === 'Enter') handleFontSizeInput(); if (e.key === 'Escape') setShowFontInput(false) }}
-          style={{ width: 30, textAlign: 'center', padding: '2px', border: '1px solid #dadce0', borderRadius: '4px', fontSize: '12px' }}
+          style={{ width: 30, textAlign: 'center', padding: '2px', border: '1px solid #dadce0', borderRadius: '4px', fontSize: '12px', outline: 'none' }}
         />
       ) : (
         <button
