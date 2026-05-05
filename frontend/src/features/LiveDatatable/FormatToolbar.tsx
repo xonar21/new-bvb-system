@@ -4,6 +4,17 @@ import type { BulkFormatCell, CellFormat, Load } from '../../types/Load'
 import { useSelectionStore } from '../../store/selectionStore'
 import { ColorPicker } from './ColorPicker'
 
+const btnStyles = `
+  .format-btn {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+  .format-btn:focus, .format-btn:focus-visible, .format-btn:active {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+`
+
 const btnBase: React.CSSProperties = {
   width: 28,
   height: 28,
@@ -18,8 +29,9 @@ const btnBase: React.CSSProperties = {
   color: '#3c4043',
   padding: 0,
   outline: 'none',
+  boxShadow: 'none',
   transition: 'background-color 0.15s, border-color 0.15s',
-}
+} as React.CSSProperties & { WebkitAppearance: string }
 
 const btnActive: React.CSSProperties = {
   ...btnBase,
@@ -184,9 +196,11 @@ export function FormatToolbar({ orderedLoadIds: _orderedLoadIds }: FormatToolbar
   }
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '2px', padding: '4px 8px', background: '#f8f9fa', borderRadius: '4px', border: '1px solid #e0e0e0', flexWrap: 'wrap' }}>
+    <>
+      <style>{btnStyles}</style>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '2px', padding: '4px 8px', background: '#f8f9fa', borderRadius: '4px', border: '1px solid #e0e0e0', flexWrap: 'wrap' }}>
       {/* Font size */}
-      <button style={btnBase} onClick={() => handleFontSizeChange(-1)} title="Decrease font size">−</button>
+      <button className="format-btn" style={btnBase} onClick={() => handleFontSizeChange(-1)} title="Decrease font size">−</button>
       {showFontInput ? (
         <input
           autoFocus
@@ -205,33 +219,33 @@ export function FormatToolbar({ orderedLoadIds: _orderedLoadIds }: FormatToolbar
           {resolvedFormat.fontSize ?? 10}
         </button>
       )}
-      <button style={btnBase} onClick={() => handleFontSizeChange(1)} title="Increase font size">+</button>
+      <button className="format-btn" style={btnBase} onClick={() => handleFontSizeChange(1)} title="Increase font size">+</button>
 
       <div style={separator} />
 
       {/* Text style */}
-      <button
+      <button className="format-btn"
         style={resolvedFormat.bold ? btnActive : btnBase}
         onClick={toggleBold}
         title="Bold (Ctrl+B)"
       >
         <strong style={{ fontSize: '13px' }}>B</strong>
       </button>
-      <button
+      <button className="format-btn"
         style={resolvedFormat.italic ? btnActive : btnBase}
         onClick={toggleItalic}
         title="Italic (Ctrl+I)"
       >
         <em style={{ fontSize: '13px', fontStyle: 'italic' }}>I</em>
       </button>
-      <button
+      <button className="format-btn"
         style={resolvedFormat.underline ? btnActive : btnBase}
         onClick={toggleUnderline}
         title="Underline (Ctrl+U)"
       >
         <span style={{ fontSize: '13px', textDecoration: 'underline' }}>U</span>
       </button>
-      <button
+      <button className="format-btn"
         style={resolvedFormat.strikethrough ? btnActive : btnBase}
         onClick={toggleStrikethrough}
         title="Strikethrough"
@@ -242,7 +256,7 @@ export function FormatToolbar({ orderedLoadIds: _orderedLoadIds }: FormatToolbar
       <div style={separator} />
 
       {/* Text color */}
-      <button
+      <button className="format-btn"
         ref={colorBtnRef}
         style={{
           ...btnBase,
@@ -256,7 +270,7 @@ export function FormatToolbar({ orderedLoadIds: _orderedLoadIds }: FormatToolbar
       </button>
 
       {/* Fill color */}
-      <button
+      <button className="format-btn"
         ref={fillBtnRef}
         style={{
           ...btnBase,
@@ -282,33 +296,33 @@ export function FormatToolbar({ orderedLoadIds: _orderedLoadIds }: FormatToolbar
       <div style={separator} />
 
       {/* Horizontal align */}
-      <button style={resolvedFormat.textAlign === 'left' ? btnActive : btnBase} onClick={() => setTextAlign('left')} title="Align left">
+      <button className="format-btn" style={resolvedFormat.textAlign === 'left' ? btnActive : btnBase} onClick={() => setTextAlign('left')} title="Align left">
         <span style={{ fontSize: '11px' }}>≡</span>
       </button>
-      <button style={resolvedFormat.textAlign === 'center' ? btnActive : btnBase} onClick={() => setTextAlign('center')} title="Align center">
+      <button className="format-btn" style={resolvedFormat.textAlign === 'center' ? btnActive : btnBase} onClick={() => setTextAlign('center')} title="Align center">
         <span style={{ fontSize: '11px' }}>⊶</span>
       </button>
-      <button style={resolvedFormat.textAlign === 'right' ? btnActive : btnBase} onClick={() => setTextAlign('right')} title="Align right">
+      <button className="format-btn" style={resolvedFormat.textAlign === 'right' ? btnActive : btnBase} onClick={() => setTextAlign('right')} title="Align right">
         <span style={{ fontSize: '11px' }}>⊷</span>
       </button>
 
       <div style={separator} />
 
       {/* Vertical align */}
-      <button style={resolvedFormat.verticalAlign === 'top' ? btnActive : btnBase} onClick={() => setVerticalAlign('top')} title="Align top">
+      <button className="format-btn" style={resolvedFormat.verticalAlign === 'top' ? btnActive : btnBase} onClick={() => setVerticalAlign('top')} title="Align top">
         <span style={{ fontSize: '11px' }}>⊤</span>
       </button>
-      <button style={resolvedFormat.verticalAlign === 'middle' ? btnActive : btnBase} onClick={() => setVerticalAlign('middle')} title="Align middle">
+      <button className="format-btn" style={resolvedFormat.verticalAlign === 'middle' ? btnActive : btnBase} onClick={() => setVerticalAlign('middle')} title="Align middle">
         <span style={{ fontSize: '11px' }}>⊟</span>
       </button>
-      <button style={resolvedFormat.verticalAlign === 'bottom' ? btnActive : btnBase} onClick={() => setVerticalAlign('bottom')} title="Align bottom">
+      <button className="format-btn" style={resolvedFormat.verticalAlign === 'bottom' ? btnActive : btnBase} onClick={() => setVerticalAlign('bottom')} title="Align bottom">
         <span style={{ fontSize: '11px' }}>⊥</span>
       </button>
 
       <div style={separator} />
 
       {/* Format painter */}
-      <button
+      <button className="format-btn"
         style={formatPainterActive ? { ...btnBase, background: '#e8f0fe', borderColor: '#aecbfa' } : btnBase}
         onClick={handleFormatPainterClick}
         onDoubleClick={handleFormatPainterDoubleClick}
@@ -319,5 +333,6 @@ export function FormatToolbar({ orderedLoadIds: _orderedLoadIds }: FormatToolbar
         </svg>
       </button>
     </div>
+    </>
   )
 }
