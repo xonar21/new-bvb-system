@@ -58,6 +58,15 @@ func Migrate(pool *pgxpool.Pool) {
 
 	CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
+	CREATE TABLE IF NOT EXISTS allowed_ips (
+		id         BIGSERIAL PRIMARY KEY,
+		ip         VARCHAR(255) NOT NULL UNIQUE,
+		created_at TIMESTAMPTZ DEFAULT NOW(),
+		updated_at TIMESTAMPTZ DEFAULT NOW()
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_allowed_ips_ip ON allowed_ips(ip);
+
 	CREATE OR REPLACE FUNCTION loads_notify_insert()
 	RETURNS TRIGGER AS $$
 	BEGIN

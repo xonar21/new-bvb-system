@@ -17,7 +17,10 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
 
   const tabs = [
     { id: 'loads', label: 'Loads' },
-    ...(isRoot ? [{ id: 'users', label: 'Users Management' }] : []),
+    ...(isRoot ? [
+      { id: 'users', label: 'Users Management' },
+      { id: 'allowed-ips', label: 'Allowed IPs' },
+    ] : []),
   ]
 
   const handleSync = async () => {

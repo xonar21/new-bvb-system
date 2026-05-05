@@ -198,6 +198,39 @@ docker run --rm --network=new-bvb-system_bvb-network -e MYSQL_HOST=host.docker.i
 - [x] Sidebar navigation (Loads / Users Management)
 - [x] Role-based access (root / user)
 - [x] Users Management (CRUD)
+## Dev-режим с polling (hot reload)
+
+В dev-режиме используется **polling** для отслеживания изменений файлов (вместо inotify), что корректно работает в Docker Desktop на Windows.
+
+- Backend (air) проверяет `.go` файлы каждые **500ms** → перекомпиляция и рестарт сервера
+- Frontend (Vite) проверяет файлы каждые **500ms** → HMR обновляет браузер без перезагрузки
+- DB миграции — только при старте (автоматически в `migrations.go`). Чтобы применить изменения в `schema.sql`, нужно пересоздать БД:
+  ```powershell
+  docker compose down --volumes
+  docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+  ```
+
+### Быстрый старт dev-режима
+
+```powershell
+# Windows
+.\scripts\start-dev.ps1
+```
+
+```bash
+# Linux / macOS
+chmod +x scripts/start-dev.sh
+./scripts/start-dev.sh
+```
+
+### Проверка работы
+
+| Ситуация | Ожидаемое |
+|----------|-----------|
+| Изменить `.go` файл | air перекомпилирует, сервер перезагрузится |
+| Изменить `.tsx` компонент | HMR обновит браузер без refresh |
+| Изменить `schema.sql` | Нужен `docker compose down --volumes` (не горячее) |
+
 - [ ] Drag & drop reorder строк
 - [ ] Cell formatting (bold/color/font-size)
 - [ ] Cell focus whispers

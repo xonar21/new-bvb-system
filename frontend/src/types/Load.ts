@@ -106,3 +106,14 @@ export interface CellFocusPayload {
   user_id?: number
   user_name?: string
 }
+
+export interface AllowedIp {
+  id: number
+  ip: string
+  created_at: string
+  updated_at: string
+}
+
+export interface AllowedIpsResponse {
+  allowed_ips: AllowedIp[]
+}

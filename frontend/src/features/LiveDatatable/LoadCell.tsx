@@ -211,29 +211,33 @@ export function LoadCell({ cell, onUpdate, colKey, onCellSelect }: LoadCellProps
     if (e.button !== 0) return
     if (isGateCode || isLocked) return
     e.preventDefault()
-    if (!colKey || !currentUser || !sendMessage) return
+    if (!colKey || !currentUser) return
 
     // Clear previous focus if any
     if (loadMyFocusRef.current) {
       const prev = loadMyFocusRef.current
-      sendMessage(
-        JSON.stringify({
-          type: 'cell.focus',
-          payload: { load_id: prev.loadId, field: prev.field, action: 'blur' },
-        }),
-      )
+      if (sendMessage) {
+        sendMessage(
+          JSON.stringify({
+            type: 'cell.focus',
+            payload: { load_id: prev.loadId, field: prev.field, action: 'blur' },
+          }),
+        )
+      }
       removeCellFocus(prev.loadId, prev.field)
     }
 
     // Set focus on drag start cell
     loadMyFocusRef.current = { loadId, field }
-    setCellFocus({
-      user_id: currentUser.id,
-      user_name: currentUser.email,
-      load_id: loadId,
-      field,
-    })
-    sendFocus('focus')
+    if (sendMessage) {
+      setCellFocus({
+        user_id: currentUser.id,
+        user_name: currentUser.email,
+        load_id: loadId,
+        field,
+      })
+      sendFocus('focus')
+    }
     startDrag(loadId, colKey)
   }, [loadId, colKey, isGateCode, isLocked, currentUser, sendMessage, removeCellFocus, setCellFocus, sendFocus, startDrag])
 

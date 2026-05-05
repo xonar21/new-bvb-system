@@ -9,6 +9,10 @@ tmp_dir = "tmp"
   include_ext = ["go", "tpl", "tmpl", "html"]
   exclude_regex = ["_test.go"]
 
+[watch]
+  poll = true
+  poll_interval = 500
+
 [log]
   main_only = true
 

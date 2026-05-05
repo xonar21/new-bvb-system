@@ -5,6 +5,7 @@ import (
 	"log"
 	"time"
 
+	"bvb-datatable/internal/allowedips"
 	"bvb-datatable/internal/auth"
 	"bvb-datatable/internal/config"
 	"bvb-datatable/internal/db"
@@ -101,6 +102,10 @@ func main() {
 
 	usersHandler := users.NewHandler(userRepo)
 	usersHandler.RegisterRoutes(api, authMW, auth.RequireRole("root"))
+
+	allowedIPsRepo := allowedips.NewRepository(pgPool)
+	allowedIPsHandler := allowedips.NewHandler(allowedIPsRepo)
+	allowedIPsHandler.RegisterRoutes(api, authMW, auth.RequireRole("root"))
 
 	if sheetSync != nil {
 		syncHandler := sheets.NewHandler(sheetSync)
