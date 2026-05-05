@@ -26,7 +26,7 @@ const btnBase: React.CSSProperties = {
 const btnActive: React.CSSProperties = {
   ...btnBase,
   background: '#e8f0fe',
-  borderColor: '#aecbfa',
+  border: '1px solid #aecbfa',
 }
 
 const separator: React.CSSProperties = {
