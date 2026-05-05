@@ -8,9 +8,9 @@ interface LayoutProps {
 
 export function Layout({ activeTab, onTabChange, children }: LayoutProps) {
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: '#fafafa' }}>
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: '#fafafa' }}>
       <Sidebar activeTab={activeTab} onTabChange={onTabChange} />
-      <div style={{ flex: 1, overflow: 'auto' }}>
+      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         {children}
       </div>
     </div>

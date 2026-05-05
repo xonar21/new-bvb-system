@@ -77,6 +77,19 @@ func main() {
 	authMW := auth.NewMiddleware(cfg.JWTSecret)
 
 	loadsRepo := loads.NewRepository(pgPool)
+
+	go db.ListenLoadsCreated(context.Background(), cfg.PostgresDSN, func(ctx context.Context, id int64) {
+		load, err := loadsRepo.Get(ctx, id)
+		if err != nil || load == nil {
+			log.Printf("DBListener callback: get load %d failed: %v", id, err)
+			return
+		}
+		wsHub.Broadcast(ws.Message{
+			Type:    "load.created",
+			Payload: load,
+		})
+	})
+
 	loadsHandler := loads.NewHandler(loadsRepo, wsHub)
 
 	api := app.Group("/api")

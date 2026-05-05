@@ -57,6 +57,19 @@ func Migrate(pool *pgxpool.Pool) {
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+	CREATE OR REPLACE FUNCTION loads_notify_insert()
+	RETURNS TRIGGER AS $$
+	BEGIN
+		PERFORM pg_notify('loads_created', NEW.id::text);
+		RETURN NEW;
+	END;
+	$$ LANGUAGE plpgsql;
+
+	DROP TRIGGER IF EXISTS loads_insert_trigger ON loads;
+	CREATE TRIGGER loads_insert_trigger
+		AFTER INSERT ON loads
+		FOR EACH ROW EXECUTE FUNCTION loads_notify_insert();
 	`
 
 	_, err := pool.Exec(ctx, schema)

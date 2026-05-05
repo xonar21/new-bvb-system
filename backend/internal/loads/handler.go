@@ -78,11 +78,6 @@ func (h *Handler) Store(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	go h.hub.Broadcast(ws.Message{
-		Type:    "load.created",
-		Payload: load,
-	})
-
 	return c.Status(201).JSON(fiber.Map{"load": load})
 }
 
