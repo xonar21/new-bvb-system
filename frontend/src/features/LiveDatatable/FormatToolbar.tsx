@@ -1,8 +1,19 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { BulkFormatCell, CellFormat, Load } from '../../types/Load'
 import { useSelectionStore } from '../../store/selectionStore'
 import { ColorPicker } from './ColorPicker'
+
+const btnStyles = `
+  .format-btn {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+  .format-btn:focus, .format-btn:focus-visible, .format-btn:active {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+`
 
 const btnBase: React.CSSProperties = {
   width: 28,
@@ -18,20 +29,25 @@ const btnBase: React.CSSProperties = {
   color: '#3c4043',
   padding: 0,
   outline: 'none',
+  boxShadow: 'none',
   transition: 'background-color 0.15s, border-color 0.15s',
-}
+} as React.CSSProperties & { WebkitAppearance: string }
 
 const btnActive: React.CSSProperties = {
-  ...btnBase, background: '#e8f0fe', borderColor: '#aecbfa',
+  ...btnBase,
+  background: '#e8f0fe',
+  borderColor: '#aecbfa',
 }
 
 const separator: React.CSSProperties = {
-  width: '1px', height: '20px', background: '#e0e0e0', margin: '0 4px',
+  width: '1px',
+  height: '20px',
+  background: '#e0e0e0',
+  margin: '0 4px',
 }
 
 interface FormatToolbarProps {
   orderedLoadIds: number[]
-  loads: Load[]
 }
 
 function mergeFormats(formats: CellFormat[]): CellFormat {
@@ -43,23 +59,14 @@ function mergeFormats(formats: CellFormat[]): CellFormat {
     if (vals.length === 0) continue
     const allSame = vals.every((v) => JSON.stringify(v) === JSON.stringify(vals[0]))
     if (allSame) {
-      ;(result as any)[key] = vals[0]
+      (result as any)[key] = vals[0]
     }
   }
   return result
 }
 
-function getResolvedFormat(loads: Load[], selectedCells: Set<string>): CellFormat {
-  if (selectedCells.size === 0) return {}
-  const formats: CellFormat[] = [...selectedCells].map((key) => {
-    const [loadId, col] = key.split(':')
-    return loads.find((l) => l.id === +loadId)?.cell_formats?.[col] ?? {}
-  })
-  return mergeFormats(formats)
-}
-
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function FormatToolbar({ orderedLoadIds: _orderedLoadIds, loads }: FormatToolbarProps) {
+export function FormatToolbar({ orderedLoadIds: _orderedLoadIds }: FormatToolbarProps) {
   const queryClient = useQueryClient()
   const selectedCells = useSelectionStore((s) => s.selectedCells)
   const formatPainterActive = useSelectionStore((s) => s.formatPainterActive)
@@ -75,22 +82,28 @@ export function FormatToolbar({ orderedLoadIds: _orderedLoadIds, loads }: Format
 
   const hasSelection = selectedCells.size > 0
 
-  const resolvedFormat = getResolvedFormat(loads, selectedCells)
+  const loads = queryClient.getQueryData<Load[]>(['loads']) ?? []
 
-  const buildCells = useCallback((patch: Partial<CellFormat>): BulkFormatCell[] => {
-    return [...selectedCells].map((key) => {
+  const resolvedFormat = useMemo(() => {
+    if (!hasSelection) return {}
+    const formats: CellFormat[] = [...selectedCells].map((key) => {
+      const [loadId, col] = key.split(':')
+      const load = loads.find((l) => l.id === +loadId)
+      return load?.cell_formats?.[col] ?? {}
+    })
+    return mergeFormats(formats)
+  }, [selectedCells, loads, hasSelection])
+
+  const applyFormat = useCallback((patch: Partial<CellFormat>) => {
+    if (!hasSelection) return
+    const cells: BulkFormatCell[] = [...selectedCells].map((key) => {
       const [loadId, col] = key.split(':')
       const load = loads.find((l) => l.id === +loadId)
       const existing = load?.cell_formats?.[col] ?? {}
       return { load_id: +loadId, column: col, format: { ...existing, ...patch } }
     })
-  }, [selectedCells, loads])
 
-  const applyFormat = useCallback((patch: Partial<CellFormat>) => {
-    if (!hasSelection) return
-    const cells = buildCells(patch)
-
-    queryClient.setQueriesData<Load[]>({ queryKey: ['loads'] }, (old) =>
+    queryClient.setQueryData<Load[]>(['loads'], (old) =>
       old?.map((load) => {
         const updates = cells.filter((c) => c.load_id === load.id)
         if (!updates.length) return load
@@ -108,46 +121,21 @@ export function FormatToolbar({ orderedLoadIds: _orderedLoadIds, loads }: Format
       },
       body: JSON.stringify({ cells }),
     }).catch(() => queryClient.invalidateQueries({ queryKey: ['loads'] }))
-  }, [hasSelection, buildCells, queryClient])
+  }, [selectedCells, loads, hasSelection, queryClient])
 
-  const clearFormatting = useCallback(() => {
-    const patch: CellFormat = {
-      bg: null, fg: null, bold: false, italic: false,
-      underline: false, strikethrough: false,
-      fontSize: null, textAlign: null, verticalAlign: null,
-    }
-    applyFormat(patch)
-  }, [applyFormat])
-
-  const toggleBold = useCallback(() => {
-    const merged = getResolvedFormat(loads, selectedCells)
-    applyFormat({ bold: !merged.bold })
-  }, [applyFormat, loads, selectedCells])
-
-  const toggleItalic = useCallback(() => {
-    const merged = getResolvedFormat(loads, selectedCells)
-    applyFormat({ italic: !merged.italic })
-  }, [applyFormat, loads, selectedCells])
-
-  const toggleUnderline = useCallback(() => {
-    const merged = getResolvedFormat(loads, selectedCells)
-    applyFormat({ underline: !merged.underline })
-  }, [applyFormat, loads, selectedCells])
-
-  const toggleStrikethrough = useCallback(() => {
-    const merged = getResolvedFormat(loads, selectedCells)
-    applyFormat({ strikethrough: !merged.strikethrough })
-  }, [applyFormat, loads, selectedCells])
+  const toggleBold = useCallback(() => applyFormat({ bold: !resolvedFormat.bold }), [applyFormat, resolvedFormat.bold])
+  const toggleItalic = useCallback(() => applyFormat({ italic: !resolvedFormat.italic }), [applyFormat, resolvedFormat.italic])
+  const toggleUnderline = useCallback(() => applyFormat({ underline: !resolvedFormat.underline }), [applyFormat, resolvedFormat.underline])
+  const toggleStrikethrough = useCallback(() => applyFormat({ strikethrough: !resolvedFormat.strikethrough }), [applyFormat, resolvedFormat.strikethrough])
 
   const setTextAlign = useCallback((align: 'left' | 'center' | 'right') => applyFormat({ textAlign: align }), [applyFormat])
   const setVerticalAlign = useCallback((align: 'top' | 'middle' | 'bottom') => applyFormat({ verticalAlign: align }), [applyFormat])
 
   const handleFontSizeChange = useCallback((delta: number) => {
-    const merged = getResolvedFormat(loads, selectedCells)
-    const current = merged.fontSize ?? 10
+    const current = resolvedFormat.fontSize ?? 10
     const newSize = Math.max(6, Math.min(96, current + delta))
     applyFormat({ fontSize: newSize })
-  }, [applyFormat, loads, selectedCells])
+  }, [applyFormat, resolvedFormat.fontSize])
 
   const handleFontSizeInput = useCallback(() => {
     const val = parseInt(fontSizeInput, 10)
@@ -166,35 +154,35 @@ export function FormatToolbar({ orderedLoadIds: _orderedLoadIds, loads }: Format
     setColorPickerType(null)
   }, [colorPickerType, applyFormat])
 
-  const buildFormatPainterSource = useCallback(() => {
+  const handleFormatPainterClick = useCallback(() => {
+    if (formatPainterActive) {
+      deactivateFormatPainter()
+      return
+    }
+    if (!hasSelection) return
     const source: Record<string, CellFormat> = {}
     selectedCells.forEach((key) => {
       const [loadId, col] = key.split(':')
       const load = loads.find((l) => l.id === +loadId)
-      const base = load?.cell_formats?.[col] ?? {}
-      if (load?.is_bold && !base.bold) base.bold = true
-      if (load?.font_size && !base.fontSize) base.fontSize = load.font_size
-      if (Object.keys(base).length > 0) {
-        source[col] = base
+      if (load?.cell_formats?.[col]) {
+        source[col] = load.cell_formats[col]
       }
     })
-    return source
-  }, [selectedCells, loads])
-
-  const handleFormatPainterClick = useCallback(() => {
-    if (formatPainterActive) { deactivateFormatPainter(); return }
-    if (!hasSelection) return
-    const source = buildFormatPainterSource()
-    if (Object.keys(source).length === 0) return
     activateFormatPainter(source, false)
-  }, [formatPainterActive, hasSelection, buildFormatPainterSource, activateFormatPainter, deactivateFormatPainter])
+  }, [formatPainterActive, hasSelection, selectedCells, loads, activateFormatPainter, deactivateFormatPainter])
 
   const handleFormatPainterDoubleClick = useCallback(() => {
     if (!hasSelection) return
-    const source = buildFormatPainterSource()
-    if (Object.keys(source).length === 0) return
+    const source: Record<string, CellFormat> = {}
+    selectedCells.forEach((key) => {
+      const [loadId, col] = key.split(':')
+      const load = loads.find((l) => l.id === +loadId)
+      if (load?.cell_formats?.[col]) {
+        source[col] = load.cell_formats[col]
+      }
+    })
     activateFormatPainter(source, true)
-  }, [hasSelection, buildFormatPainterSource, activateFormatPainter])
+  }, [hasSelection, selectedCells, loads, activateFormatPainter])
 
   const selectedFgColor = resolvedFormat.fg ?? null
   const selectedBgColor = resolvedFormat.bg ?? null
@@ -208,14 +196,11 @@ export function FormatToolbar({ orderedLoadIds: _orderedLoadIds, loads }: Format
   }
 
   return (
-    <div
-      onMouseUp={(e) => {
-        const btn = e.target instanceof HTMLButtonElement ? e.target : (e.target as HTMLElement).closest?.('button')
-        if (btn) (btn as HTMLElement).blur()
-      }}
-      style={{ display: 'flex', alignItems: 'center', gap: '2px', padding: '4px 8px', background: '#f8f9fa', borderRadius: '4px', border: '1px solid #e0e0e0', flexWrap: 'wrap' }}>
+    <>
+      <style>{btnStyles}</style>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '2px', padding: '4px 8px', background: '#f8f9fa', borderRadius: '4px', border: '1px solid #e0e0e0', flexWrap: 'wrap' }}>
       {/* Font size */}
-      <button style={btnBase} onClick={() => handleFontSizeChange(-1)} title="Decrease font size">−</button>
+      <button className="format-btn" style={btnBase} onClick={() => handleFontSizeChange(-1)} title="Decrease font size">−</button>
       {showFontInput ? (
         <input
           autoFocus
@@ -234,30 +219,49 @@ export function FormatToolbar({ orderedLoadIds: _orderedLoadIds, loads }: Format
           {resolvedFormat.fontSize ?? 10}
         </button>
       )}
-      <button style={btnBase} onClick={() => handleFontSizeChange(1)} title="Increase font size">+</button>
+      <button className="format-btn" style={btnBase} onClick={() => handleFontSizeChange(1)} title="Increase font size">+</button>
 
       <div style={separator} />
 
       {/* Text style */}
-      <button style={resolvedFormat.bold ? btnActive : btnBase} onClick={toggleBold} title="Bold (Ctrl+B)">
+      <button className="format-btn"
+        style={resolvedFormat.bold ? btnActive : btnBase}
+        onClick={toggleBold}
+        title="Bold (Ctrl+B)"
+      >
         <strong style={{ fontSize: '13px' }}>B</strong>
       </button>
-      <button style={resolvedFormat.italic ? btnActive : btnBase} onClick={toggleItalic} title="Italic (Ctrl+I)">
+      <button className="format-btn"
+        style={resolvedFormat.italic ? btnActive : btnBase}
+        onClick={toggleItalic}
+        title="Italic (Ctrl+I)"
+      >
         <em style={{ fontSize: '13px', fontStyle: 'italic' }}>I</em>
       </button>
-      <button style={resolvedFormat.underline ? btnActive : btnBase} onClick={toggleUnderline} title="Underline (Ctrl+U)">
+      <button className="format-btn"
+        style={resolvedFormat.underline ? btnActive : btnBase}
+        onClick={toggleUnderline}
+        title="Underline (Ctrl+U)"
+      >
         <span style={{ fontSize: '13px', textDecoration: 'underline' }}>U</span>
       </button>
-      <button style={resolvedFormat.strikethrough ? btnActive : btnBase} onClick={toggleStrikethrough} title="Strikethrough">
+      <button className="format-btn"
+        style={resolvedFormat.strikethrough ? btnActive : btnBase}
+        onClick={toggleStrikethrough}
+        title="Strikethrough"
+      >
         <span style={{ fontSize: '13px', textDecoration: 'line-through' }}>S</span>
       </button>
 
       <div style={separator} />
 
       {/* Text color */}
-      <button
+      <button className="format-btn"
         ref={colorBtnRef}
-        style={{ ...btnBase, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px' }}
+        style={{
+          ...btnBase,
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px',
+        }}
         onClick={() => setColorPickerType('text')}
         title="Text color"
       >
@@ -266,14 +270,17 @@ export function FormatToolbar({ orderedLoadIds: _orderedLoadIds, loads }: Format
       </button>
 
       {/* Fill color */}
-      <button
+      <button className="format-btn"
         ref={fillBtnRef}
-        style={{ ...btnBase, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px' }}
+        style={{
+          ...btnBase,
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px',
+        }}
         onClick={() => setColorPickerType('fill')}
         title="Fill color"
       >
         <span style={{ fontSize: '11px' }}>◉</span>
-        <span style={{ width: 14, height: 3, borderRadius: 1, backgroundColor: selectedBgColor ?? 'transparent' }} />
+        <span style={{ width: 14, height: 3, borderRadius: 1, backgroundColor: selectedBgColor ?? '#fff', border: '1px solid #dadce0' }} />
       </button>
 
       {colorPickerType && (
@@ -289,42 +296,33 @@ export function FormatToolbar({ orderedLoadIds: _orderedLoadIds, loads }: Format
       <div style={separator} />
 
       {/* Horizontal align */}
-      <button style={resolvedFormat.textAlign === 'left' ? btnActive : btnBase} onClick={() => setTextAlign('left')} title="Align left">
+      <button className="format-btn" style={resolvedFormat.textAlign === 'left' ? btnActive : btnBase} onClick={() => setTextAlign('left')} title="Align left">
         <span style={{ fontSize: '11px' }}>≡</span>
       </button>
-      <button style={resolvedFormat.textAlign === 'center' ? btnActive : btnBase} onClick={() => setTextAlign('center')} title="Align center">
+      <button className="format-btn" style={resolvedFormat.textAlign === 'center' ? btnActive : btnBase} onClick={() => setTextAlign('center')} title="Align center">
         <span style={{ fontSize: '11px' }}>⊶</span>
       </button>
-      <button style={resolvedFormat.textAlign === 'right' ? btnActive : btnBase} onClick={() => setTextAlign('right')} title="Align right">
+      <button className="format-btn" style={resolvedFormat.textAlign === 'right' ? btnActive : btnBase} onClick={() => setTextAlign('right')} title="Align right">
         <span style={{ fontSize: '11px' }}>⊷</span>
       </button>
 
       <div style={separator} />
 
       {/* Vertical align */}
-      <button style={resolvedFormat.verticalAlign === 'top' ? btnActive : btnBase} onClick={() => setVerticalAlign('top')} title="Align top">
+      <button className="format-btn" style={resolvedFormat.verticalAlign === 'top' ? btnActive : btnBase} onClick={() => setVerticalAlign('top')} title="Align top">
         <span style={{ fontSize: '11px' }}>⊤</span>
       </button>
-      <button style={resolvedFormat.verticalAlign === 'middle' ? btnActive : btnBase} onClick={() => setVerticalAlign('middle')} title="Align middle">
+      <button className="format-btn" style={resolvedFormat.verticalAlign === 'middle' ? btnActive : btnBase} onClick={() => setVerticalAlign('middle')} title="Align middle">
         <span style={{ fontSize: '11px' }}>⊟</span>
       </button>
-      <button style={resolvedFormat.verticalAlign === 'bottom' ? btnActive : btnBase} onClick={() => setVerticalAlign('bottom')} title="Align bottom">
+      <button className="format-btn" style={resolvedFormat.verticalAlign === 'bottom' ? btnActive : btnBase} onClick={() => setVerticalAlign('bottom')} title="Align bottom">
         <span style={{ fontSize: '11px' }}>⊥</span>
       </button>
 
       <div style={separator} />
 
-      {/* Clear formatting */}
-      <button style={btnBase} onClick={clearFormatting} title="Clear formatting">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="#5f6368">
-          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-        </svg>
-      </button>
-
-      <div style={separator} />
-
       {/* Format painter */}
-      <button
+      <button className="format-btn"
         style={formatPainterActive ? { ...btnBase, background: '#e8f0fe', borderColor: '#aecbfa' } : btnBase}
         onClick={handleFormatPainterClick}
         onDoubleClick={handleFormatPainterDoubleClick}
@@ -335,5 +333,6 @@ export function FormatToolbar({ orderedLoadIds: _orderedLoadIds, loads }: Format
         </svg>
       </button>
     </div>
+    </>
   )
 }
