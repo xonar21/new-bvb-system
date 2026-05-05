@@ -48,6 +48,7 @@ const separator: React.CSSProperties = {
 
 interface FormatToolbarProps {
   orderedLoadIds: number[]
+  loads: Load[]
 }
 
 function mergeFormats(formats: CellFormat[]): CellFormat {
@@ -66,7 +67,7 @@ function mergeFormats(formats: CellFormat[]): CellFormat {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function FormatToolbar({ orderedLoadIds: _orderedLoadIds }: FormatToolbarProps) {
+export function FormatToolbar({ orderedLoadIds: _orderedLoadIds, loads }: FormatToolbarProps) {
   const queryClient = useQueryClient()
   const selectedCells = useSelectionStore((s) => s.selectedCells)
   const formatPainterActive = useSelectionStore((s) => s.formatPainterActive)
@@ -81,8 +82,6 @@ export function FormatToolbar({ orderedLoadIds: _orderedLoadIds }: FormatToolbar
   const fillBtnRef = useRef<HTMLButtonElement | null>(null)
 
   const hasSelection = selectedCells.size > 0
-
-  const loads = queryClient.getQueryData<Load[]>(['loads']) ?? []
 
   const resolvedFormat = useMemo(() => {
     if (!hasSelection) return {}
