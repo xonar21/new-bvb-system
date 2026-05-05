@@ -92,7 +92,7 @@ export function FormatToolbar({ orderedLoadIds: _orderedLoadIds, loads }: Format
       return { load_id: +loadId, column: col, format: { ...existing, ...patch } }
     })
 
-    queryClient.setQueryData<Load[]>(['loads'], (old) =>
+    queryClient.setQueriesData<Load[]>({ queryKey: ['loads'] }, (old) =>
       old?.map((load) => {
         const updates = cells.filter((c) => c.load_id === load.id)
         if (!updates.length) return load
@@ -172,6 +172,20 @@ export function FormatToolbar({ orderedLoadIds: _orderedLoadIds, loads }: Format
     })
     activateFormatPainter(source, true)
   }, [hasSelection, selectedCells, loads, activateFormatPainter])
+
+  const resetFormat = useCallback(() => {
+    applyFormat({
+      bg: null,
+      fg: null,
+      bold: false,
+      italic: false,
+      underline: false,
+      strikethrough: false,
+      fontSize: null,
+      textAlign: null,
+      verticalAlign: null,
+    })
+  }, [applyFormat])
 
   const selectedFgColor = resolvedFormat.fg ?? null
   const selectedBgColor = resolvedFormat.bg ?? null
@@ -280,6 +294,15 @@ export function FormatToolbar({ orderedLoadIds: _orderedLoadIds, loads }: Format
           anchorEl={colorPickerType === 'text' ? colorBtnRef.current : fillBtnRef.current}
         />
       )}
+
+      <div style={separator} />
+
+      {/* Clear formatting */}
+      <button className="format-btn" style={btnBase} onClick={resetFormat} title="Clear formatting">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="#5f6368">
+          <path d="M12.77 3.77l-9 9c-.78.78-.78 2.04 0 2.82l4 4c.78.78 2.04.78 2.82 0l9-9c.78-.78.78-2.04 0-2.82l-4-4c-.78-.78-2.04-.78-2.82 0zM11.3 5.3l4 4-6.3 6.3-4-4 6.3-6.3zM2 22h20v-2H2v2z"/>
+        </svg>
+      </button>
 
       <div style={separator} />
 
