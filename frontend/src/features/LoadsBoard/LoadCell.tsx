@@ -283,6 +283,8 @@ export function LoadCell({ cell, onUpdate, colKey, onCellSelect, fillHeight }: L
       onMouseEnter={handleMouseEnter}
       style={{
         position: 'relative',
+        display: fillHeight ? 'flex' : undefined,
+        alignItems: fillHeight ? 'center' : undefined,
         cursor: formatPainterActive ? 'cell' : (isGateCode || isLocked || isFocusedByOther ? 'default' : 'pointer'),
         fontWeight: cellStyle.fontWeight ?? (isBold ? 700 : 400),
         fontStyle: cellStyle.fontStyle ?? undefined,
