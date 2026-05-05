@@ -1,0 +1,14 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "BVB PostgreSQL",
+      "Group": "Servers",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "bvb_datatable",
+      "Username": "postgres",
+      "Password": "secret",
+      "SSLMode": "prefer"
+    }
+  }
+}

@@ -75,6 +75,9 @@ services:
       PGADMIN_DEFAULT_EMAIL: admin@example.com
       PGADMIN_DEFAULT_PASSWORD: admin123
       PGADMIN_CONFIG_SERVER_MODE: "False"
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+      - ./infra/pgadmin-servers.json:/pgadmin4/servers.json
     depends_on:
       - postgres
     networks:
@@ -98,3 +101,4 @@ networks:
 
 volumes:
   pgdata:
+  pgadmin-data:
