@@ -57,9 +57,10 @@ export function useUpdateLoad() {
     onMutate: async ({ id, data }) => {
       await queryClient.cancelQueries({ queryKey: ['loads'] })
 
-      const prev = queryClient.getQueryData<Load[]>(['loads'])
+      const all = queryClient.getQueriesData<Load[]>({ queryKey: ['loads'] })
+      const prev = all
 
-      queryClient.setQueryData<Load[]>(['loads'], (old) =>
+      queryClient.setQueriesData<Load[]>({ queryKey: ['loads'] }, (old) =>
         old?.map((l) => (l.id === id ? { ...l, ...data } as Load : l)) ?? [],
       )
 
@@ -68,7 +69,10 @@ export function useUpdateLoad() {
 
     onError: (_err, _vars, ctx) => {
       if (ctx?.prev) {
-        queryClient.setQueryData(['loads'], ctx.prev)
+        const prevData = ctx.prev as [readonly unknown[], Load[] | undefined][]
+        prevData.forEach(([key, data]) => {
+          queryClient.setQueryData(key, data)
+        })
       }
     },
 
@@ -89,9 +93,10 @@ export function useDeleteLoad() {
     onMutate: async (id) => {
       await queryClient.cancelQueries({ queryKey: ['loads'] })
 
-      const prev = queryClient.getQueryData<Load[]>(['loads'])
+      const all = queryClient.getQueriesData<Load[]>({ queryKey: ['loads'] })
+      const prev = all
 
-      queryClient.setQueryData<Load[]>(['loads'], (old) =>
+      queryClient.setQueriesData<Load[]>({ queryKey: ['loads'] }, (old) =>
         old?.filter((l) => l.id !== id) ?? [],
       )
 
@@ -100,7 +105,10 @@ export function useDeleteLoad() {
 
     onError: (_err, _id, ctx) => {
       if (ctx?.prev) {
-        queryClient.setQueryData(['loads'], ctx.prev)
+        const prevData = ctx.prev as [readonly unknown[], Load[] | undefined][]
+        prevData.forEach(([key, data]) => {
+          queryClient.setQueryData(key, data)
+        })
       }
     },
 
@@ -122,9 +130,10 @@ export function useUpdateCellFormat() {
     onMutate: async ({ id, column, format }) => {
       await queryClient.cancelQueries({ queryKey: ['loads'] })
 
-      const prev = queryClient.getQueryData<Load[]>(['loads'])
+      const all = queryClient.getQueriesData<Load[]>({ queryKey: ['loads'] })
+      const prev = all
 
-      queryClient.setQueryData<Load[]>(['loads'], (old) =>
+      queryClient.setQueriesData<Load[]>({ queryKey: ['loads'] }, (old) =>
         old?.map((load) =>
           load.id === id
             ? {
@@ -143,7 +152,10 @@ export function useUpdateCellFormat() {
 
     onError: (_err, _vars, ctx) => {
       if (ctx?.prev) {
-        queryClient.setQueryData(['loads'], ctx.prev)
+        const prevData = ctx.prev as [readonly unknown[], Load[] | undefined][]
+        prevData.forEach(([key, data]) => {
+          queryClient.setQueryData(key, data)
+        })
       }
     },
 
@@ -164,9 +176,10 @@ export function useUpdateBulkFormat() {
     onMutate: async (cells) => {
       await queryClient.cancelQueries({ queryKey: ['loads'] })
 
-      const prev = queryClient.getQueryData<Load[]>(['loads'])
+      const all = queryClient.getQueriesData<Load[]>({ queryKey: ['loads'] })
+      const prev = all
 
-      queryClient.setQueryData<Load[]>(['loads'], (old) =>
+      queryClient.setQueriesData<Load[]>({ queryKey: ['loads'] }, (old) =>
         old?.map((load) => {
           const loadCells = cells.filter((c) => c.load_id === load.id)
           if (!loadCells.length) return load
@@ -181,7 +194,10 @@ export function useUpdateBulkFormat() {
 
     onError: (_err, _vars, ctx) => {
       if (ctx?.prev) {
-        queryClient.setQueryData(['loads'], ctx.prev)
+        const prevData = ctx.prev as [readonly unknown[], Load[] | undefined][]
+        prevData.forEach(([key, data]) => {
+          queryClient.setQueryData(key, data)
+        })
       }
     },
 

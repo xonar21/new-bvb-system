@@ -101,24 +101,25 @@ export function LiveDatatable() {
 
         // Format painter application
         if (state.formatPainterActive && state.formatPainterSource && state.selectedCells.size > 0) {
-          const loadsData = queryClient.getQueryData<Load[]>(['loads']) ?? []
+          const all = queryClient.getQueriesData<Load[]>({ queryKey: ['loads'] })
+          const freshLoads = all.flatMap(([_, data]) => data ?? [])
           const source = state.formatPainterSource
 
-          // Apply source formats to all selected cells
+          const mergedSource: CellFormat = {}
+          for (const src of Object.values(source)) {
+            Object.assign(mergedSource, src)
+          }
+
           const cells: BulkFormatCell[] = [...state.selectedCells].map((key) => {
             const [loadId, col] = key.split(':')
-            const load = loadsData.find((l) => l.id === +loadId)
+            const load = freshLoads.find((l) => l.id === +loadId)
             const existing = load?.cell_formats?.[col] ?? {}
-            // Merge source format on top of existing
-            const mergedSource: CellFormat = {}
-            for (const src of Object.values(source)) {
-              Object.assign(mergedSource, src)
-            }
             return { load_id: +loadId, column: col, format: { ...existing, ...mergedSource } }
           })
 
-          // Optimistic update
-          queryClient.setQueryData<Load[]>(['loads'], (old) =>
+          if (cells.length === 0) return
+
+          queryClient.setQueriesData<Load[]>({ queryKey: ['loads'] }, (old) =>
             old?.map((load) => {
               const updates = cells.filter((c) => c.load_id === load.id)
               if (!updates.length) return load
@@ -242,7 +243,7 @@ export function LiveDatatable() {
       </div>
 
       <div style={{ marginBottom: '8px', flexShrink: 0 }}>
-        <FormatToolbar orderedLoadIds={loads?.map((l) => l.id) ?? []} />
+        <FormatToolbar orderedLoadIds={loads?.map((l) => l.id) ?? []} loads={loads ?? []} />
       </div>
 
       <div style={{ flex: 1, overflow: 'auto', border: '1px solid #ddd', borderRadius: '4px' }}>
