@@ -3,10 +3,15 @@ package sheets
 import "time"
 
 type CellFormat struct {
-	Bg       *string `json:"bg,omitempty"`
-	Fg       *string `json:"fg,omitempty"`
-	Bold     bool    `json:"bold,omitempty"`
-	FontSize *int    `json:"fontSize,omitempty"`
+	Bg            *string `json:"bg,omitempty"`
+	Fg            *string `json:"fg,omitempty"`
+	Bold          bool    `json:"bold,omitempty"`
+	Italic        bool    `json:"italic,omitempty"`
+	Underline     bool    `json:"underline,omitempty"`
+	Strikethrough bool    `json:"strikethrough,omitempty"`
+	FontSize      *int    `json:"fontSize,omitempty"`
+	TextAlign     *string `json:"textAlign,omitempty"`
+	VerticalAlign *string `json:"verticalAlign,omitempty"`
 }
 
 type RowFormats map[string]CellFormat

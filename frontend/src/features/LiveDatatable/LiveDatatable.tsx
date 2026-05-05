@@ -7,11 +7,14 @@ import {
   useReactTable,
 } from '@tanstack/react-table'
 import type { SortingState } from '@tanstack/react-table'
+import { useQueryClient } from '@tanstack/react-query'
 import { useLoads, useUpdateLoad } from '../../hooks/useLoads'
 import { columns, columnToColKey } from './columns'
 import { LoadCell } from './LoadCell'
 import { OnlineUsersBar } from './OnlineUsersBar'
 import { FormatToolbar } from './FormatToolbar'
+import { useSelectionStore } from '../../store/selectionStore'
+import type { BulkFormatCell, CellFormat, Load } from '../../types/Load'
 
 function useDebounce<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState(value)
@@ -74,22 +77,81 @@ export function LiveDatatable() {
     [debouncedDateFrom, debouncedDateTo, search],
   )
 
-  const [selectedCell, setSelectedCell] = useState<{ loadId: number; colKey: string } | null>(null)
-
   const { data: loads, isLoading, isError, error } = useLoads(filters)
   const updateMutation = useUpdateLoad()
 
-  const handleCellSelect = (loadId: number, colKey: string) => {
-    setSelectedCell({ loadId, colKey })
+  const queryClient = useQueryClient()
+  const setOrderedLoadIds = useSelectionStore((s) => s.setOrderedLoadIds)
+  const endDrag = useSelectionStore((s) => s.endDrag)
+  const deactivateFormatPainter = useSelectionStore((s) => s.deactivateFormatPainter)
+
+  // Sync ordered load IDs to selection store
+  useEffect(() => {
+    if (loads) {
+      setOrderedLoadIds(loads.map((l) => l.id))
+    }
+  }, [loads, setOrderedLoadIds])
+
+  // Global mouseup listener for drag selection
+  useEffect(() => {
+    const onUp = () => {
+      const state = useSelectionStore.getState()
+      if (state.isDragging) {
+        endDrag()
+
+        // Format painter application
+        if (state.formatPainterActive && state.formatPainterSource && state.selectedCells.size > 0) {
+          const loadsData = queryClient.getQueryData<Load[]>(['loads']) ?? []
+          const source = state.formatPainterSource
+
+          // Apply source formats to all selected cells
+          const cells: BulkFormatCell[] = [...state.selectedCells].map((key) => {
+            const [loadId, col] = key.split(':')
+            const load = loadsData.find((l) => l.id === +loadId)
+            const existing = load?.cell_formats?.[col] ?? {}
+            // Merge source format on top of existing
+            const mergedSource: CellFormat = {}
+            for (const src of Object.values(source)) {
+              Object.assign(mergedSource, src)
+            }
+            return { load_id: +loadId, column: col, format: { ...existing, ...mergedSource } }
+          })
+
+          // Optimistic update
+          queryClient.setQueryData<Load[]>(['loads'], (old) =>
+            old?.map((load) => {
+              const updates = cells.filter((c) => c.load_id === load.id)
+              if (!updates.length) return load
+              const newFormats = { ...load.cell_formats }
+              updates.forEach((u) => { newFormats[u.column] = u.format })
+              return { ...load, cell_formats: newFormats as Record<string, CellFormat> }
+            }) ?? [],
+          )
+
+          fetch('/api/loads/bulk-format', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
+            },
+            body: JSON.stringify({ cells }),
+          }).catch(() => queryClient.invalidateQueries({ queryKey: ['loads'] }))
+        }
+
+        // Auto-deactivate format painter if not sticky
+        const fmtState = useSelectionStore.getState()
+        if (fmtState.formatPainterActive && !fmtState.formatPainterSticky) {
+          deactivateFormatPainter()
+        }
+      }
+    }
+    document.addEventListener('mouseup', onUp)
+    return () => document.removeEventListener('mouseup', onUp)
+  }, [endDrag, deactivateFormatPainter, queryClient])
+
+  const handleCellSelect = (_loadId: number, _colKey: string) => {
+    // Cell focus tracking - handled by selection store now
   }
-
-  const selectedLoad = selectedCell
-    ? loads?.find((l) => l.id === selectedCell.loadId)
-    : undefined
-
-  const selectedFormat = selectedCell && selectedLoad
-    ? selectedLoad.cell_formats?.[selectedCell.colKey]
-    : undefined
 
   const actualPageSize = pageSize > 0 ? pageSize : (loads?.length ?? 50)
 
@@ -179,16 +241,9 @@ export function LiveDatatable() {
         </div>
       </div>
 
-      {selectedCell && (
-        <div style={{ marginBottom: '8px', flexShrink: 0 }}>
-          <FormatToolbar
-            loadId={selectedCell.loadId}
-            colKey={selectedCell.colKey}
-            currentFormat={selectedFormat}
-            onClose={() => setSelectedCell(null)}
-          />
-        </div>
-      )}
+      <div style={{ marginBottom: '8px', flexShrink: 0 }}>
+        <FormatToolbar orderedLoadIds={loads?.map((l) => l.id) ?? []} />
+      </div>
 
       <div style={{ flex: 1, overflow: 'auto', border: '1px solid #ddd', borderRadius: '4px' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>

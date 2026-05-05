@@ -58,9 +58,31 @@ type UpdateRequest struct {
 	CellFormats              *json.RawMessage `json:"cell_formats"`
 }
 
+type CellFormat struct {
+	Bg            *string `json:"bg,omitempty"`
+	Fg            *string `json:"fg,omitempty"`
+	FontSize      *int    `json:"fontSize,omitempty"`
+	Bold          bool    `json:"bold,omitempty"`
+	Italic        bool    `json:"italic,omitempty"`
+	Underline     bool    `json:"underline,omitempty"`
+	Strikethrough bool    `json:"strikethrough,omitempty"`
+	TextAlign     *string `json:"textAlign,omitempty"`
+	VerticalAlign *string `json:"verticalAlign,omitempty"`
+}
+
 type FormatRequest struct {
 	Column string          `json:"column"`
 	Format json.RawMessage `json:"format"`
+}
+
+type BulkFormatCell struct {
+	LoadID int64           `json:"load_id"`
+	Column string          `json:"column"`
+	Format json.RawMessage `json:"format"`
+}
+
+type BulkFormatRequest struct {
+	Cells []BulkFormatCell `json:"cells"`
 }
 
 type BulkOrderItem struct {

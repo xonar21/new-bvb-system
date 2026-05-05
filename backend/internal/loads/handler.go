@@ -10,7 +10,7 @@ import (
 
 var validColumns = map[string]bool{
 	"col1": true, "col2": true, "col3": true, "col4": true,
-	"col5": true, "col6": true, "col7": true,
+	"col5": true, "col6": true, "col7": true, "col8": true, "col9": true,
 }
 
 type Handler struct {
@@ -30,6 +30,7 @@ func (h *Handler) RegisterRoutes(api fiber.Router, auth fiber.Handler) {
 	loads.Put("/:id", h.Update)
 	loads.Delete("/:id", h.Delete)
 	loads.Patch("/:id/format", h.UpdateFormat)
+	loads.Post("/bulk-format", h.BulkFormat)
 	loads.Post("/bulk-order", h.BulkOrder)
 }
 
@@ -173,6 +174,27 @@ func (h *Handler) UpdateFormat(c *fiber.Ctx) error {
 	})
 
 	return c.JSON(fiber.Map{"load": load})
+}
+
+func (h *Handler) BulkFormat(c *fiber.Ctx) error {
+	var req BulkFormatRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	loads, err := h.repo.BulkFormat(c.Context(), req.Cells)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	for _, load := range loads {
+		go h.hub.Broadcast(ws.Message{
+			Type:    "load.updated",
+			Payload: load,
+		})
+	}
+
+	return c.JSON(fiber.Map{"loads": loads})
 }
 
 func (h *Handler) BulkOrder(c *fiber.Ctx) error {

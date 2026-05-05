@@ -3,6 +3,7 @@ import type { CellContext } from '@tanstack/react-table'
 import type { Load } from '../../types/Load'
 import { useWSStore } from '../../store/wsStore'
 import { useAuthStore } from '../../store/authStore'
+import { useSelectionStore } from '../../store/selectionStore'
 
 const USER_COLORS = [
   '#4a90d9', '#e67e22', '#2ecc71', '#9b59b6',
@@ -24,16 +25,43 @@ interface LoadCellProps {
   onCellSelect?: (loadId: number, colKey: string) => void
 }
 
+function blendWithBlue(bg: string): string {
+  if (!bg || bg === 'transparent') return 'rgba(26,115,232,0.1)'
+  const r = parseInt(bg.slice(1, 3), 16)
+  const g = parseInt(bg.slice(3, 5), 16)
+  const b = parseInt(bg.slice(5, 7), 16)
+  if (isNaN(r) || isNaN(g) || isNaN(b)) return 'rgba(26,115,232,0.1)'
+  return `rgba(${Math.round(r * 0.85 + 26 * 0.15)},${Math.round(g * 0.85 + 115 * 0.15)},${Math.round(b * 0.85 + 232 * 0.15)},0.85)`
+}
+
+function blendWithOrange(bg: string): string {
+  if (!bg || bg === 'transparent') return 'rgba(251,188,5,0.2)'
+  const r = parseInt(bg.slice(1, 3), 16)
+  const g = parseInt(bg.slice(3, 5), 16)
+  const b = parseInt(bg.slice(5, 7), 16)
+  if (isNaN(r) || isNaN(g) || isNaN(b)) return 'rgba(251,188,5,0.2)'
+  return `rgba(${Math.round(r * 0.85 + 251 * 0.15)},${Math.round(g * 0.85 + 188 * 0.15)},${Math.round(b * 0.85 + 5 * 0.15)},0.85)`
+}
+
 function getCellStyle(load: Load, colKey?: string): React.CSSProperties {
   if (!colKey) return {}
   const fmt = load.cell_formats?.[colKey]
   if (!fmt) return {}
 
+  const textDecoration = [
+    fmt.underline && 'underline',
+    fmt.strikethrough && 'line-through',
+  ].filter(Boolean).join(' ')
+
   return {
     backgroundColor: fmt.bg ?? undefined,
     color: fmt.fg ?? undefined,
     fontWeight: fmt.bold || load.is_bold ? 700 : 400,
+    fontStyle: fmt.italic ? 'italic' : undefined,
+    textDecoration: textDecoration || undefined,
     fontSize: fmt.fontSize ? `${fmt.fontSize}pt` : undefined,
+    textAlign: fmt.textAlign ?? undefined,
+    verticalAlign: fmt.verticalAlign ?? undefined,
   }
 }
 
@@ -59,6 +87,15 @@ export function LoadCell({ cell, onUpdate, colKey, onCellSelect }: LoadCellProps
   const isLocked = cell.row.original.is_lock
   const isMCC = cell.row.original.is_mcc
   const isGateCode = cell.column.id === 'gate_code'
+
+  const isDragging = useSelectionStore((s) => s.isDragging)
+  const selectedCells = useSelectionStore((s) => s.selectedCells)
+  const formatPainterActive = useSelectionStore((s) => s.formatPainterActive)
+  const startDrag = useSelectionStore((s) => s.startDrag)
+  const extendDrag = useSelectionStore((s) => s.extendDrag)
+
+  const cellKey = colKey ? `${loadId}:${colKey}` : ''
+  const isSelected = selectedCells.has(cellKey)
 
   // Module-level ref shared across all LoadCell instances (use global object directly)
 
@@ -164,7 +201,26 @@ export function LoadCell({ cell, onUpdate, colKey, onCellSelect }: LoadCellProps
 
   const cellStyle = getCellStyle(cell.row.original, colKey)
 
-  if (editing && !isGateCode && !isLocked) {
+  const selectionBg = isSelected
+    ? (formatPainterActive
+        ? (cellStyle.backgroundColor ? blendWithOrange(cellStyle.backgroundColor as string) : 'rgba(251,188,5,0.2)')
+        : (cellStyle.backgroundColor ? blendWithBlue(cellStyle.backgroundColor as string) : 'rgba(26,115,232,0.1)'))
+    : undefined
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (e.button !== 0) return
+    if (isGateCode || isLocked) return
+    e.preventDefault()
+    if (!colKey) return
+    startDrag(loadId, colKey)
+  }, [loadId, colKey, isGateCode, isLocked, startDrag])
+
+  const handleMouseEnter = useCallback(() => {
+    if (!isDragging || !colKey) return
+    extendDrag(loadId, colKey)
+  }, [isDragging, loadId, colKey, extendDrag])
+
+    if (editing && !isGateCode && !isLocked) {
     return (
       <div style={{ position: 'relative' }}>
         <input
@@ -176,12 +232,16 @@ export function LoadCell({ cell, onUpdate, colKey, onCellSelect }: LoadCellProps
           style={{
             width: '100%',
             border: '1px solid #4a90d9',
-            outline: 'none',
+            outline: isSelected ? '2px solid #1a73e8' : 'none',
+            outlineOffset: '-1px',
             padding: '2px 4px',
             fontSize: cellStyle.fontSize ?? 'inherit',
             fontWeight: cellStyle.fontWeight ?? (isBold ? 700 : 400),
+            fontStyle: cellStyle.fontStyle ?? undefined,
+            textDecoration: cellStyle.textDecoration ?? undefined,
+            textAlign: cellStyle.textAlign ?? undefined,
             color: cellStyle.color ?? undefined,
-            background: cellStyle.backgroundColor ?? '#fff',
+            background: selectionBg ?? cellStyle.backgroundColor ?? '#fff',
           }}
         />
       </div>
@@ -192,18 +252,27 @@ export function LoadCell({ cell, onUpdate, colKey, onCellSelect }: LoadCellProps
     <div
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
+      onMouseDown={handleMouseDown}
+      onMouseEnter={handleMouseEnter}
       style={{
         position: 'relative',
-        cursor: isGateCode || isLocked || isFocusedByOther ? 'default' : 'pointer',
+        cursor: formatPainterActive ? 'cell' : (isGateCode || isLocked || isFocusedByOther ? 'default' : 'pointer'),
         fontWeight: cellStyle.fontWeight ?? (isBold ? 700 : 400),
-        background: cellStyle.backgroundColor ?? (isMCC ? '#fff3cd' : isEditingByOther ? '#f5f5f5' : isFocused ? '#f0f7ff' : 'transparent'),
+        fontStyle: cellStyle.fontStyle ?? undefined,
+        textDecoration: cellStyle.textDecoration ?? undefined,
+        textAlign: cellStyle.textAlign ?? undefined,
+        verticalAlign: cellStyle.verticalAlign ?? undefined,
+        background: selectionBg ?? cellStyle.backgroundColor ?? (isMCC ? '#fff3cd' : isEditingByOther ? '#f5f5f5' : isFocused ? '#f0f7ff' : 'transparent'),
         color: cellStyle.color ?? undefined,
         fontSize: cellStyle.fontSize ?? undefined,
+        outline: isSelected ? `2px solid ${formatPainterActive ? '#fbbc04' : '#1a73e8'}` : undefined,
+        outlineOffset: '-1px',
         display: 'block',
         minHeight: '20px',
         padding: '2px 4px',
         borderLeft: isFocused ? `3px solid ${focusColor}` : '3px solid transparent',
         opacity: isEditingByOther ? 0.6 : 1,
+        userSelect: 'none',
       }}
       title={
         isLocked

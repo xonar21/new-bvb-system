@@ -2,7 +2,18 @@ export interface CellFormat {
   bg?: string | null
   fg?: string | null
   bold?: boolean
+  italic?: boolean
+  underline?: boolean
+  strikethrough?: boolean
   fontSize?: number | null
+  textAlign?: 'left' | 'center' | 'right' | null
+  verticalAlign?: 'top' | 'middle' | 'bottom' | null
+}
+
+export interface BulkFormatCell {
+  load_id: number
+  column: string
+  format: CellFormat
 }
 
 export interface Load {

@@ -296,7 +296,40 @@ func extractCellFormat(cell *sheets.CellData) *CellFormat {
 		cf.FontSize = &fs
 	}
 
-	if cf.Bg == nil && cf.Fg == nil && !cf.Bold && cf.FontSize == nil {
+	// Italic
+	if tf != nil && tf.Italic {
+		cf.Italic = true
+	}
+
+	// Underline
+	if tf != nil && tf.Underline {
+		cf.Underline = true
+	}
+
+	// Strikethrough
+	if tf != nil && tf.Strikethrough {
+		cf.Strikethrough = true
+	}
+
+	// Horizontal alignment
+	if ef.HorizontalAlignment != "" {
+		align := strings.ToLower(ef.HorizontalAlignment)
+		if align == "left" || align == "center" || align == "right" {
+			cf.TextAlign = &align
+		}
+	}
+
+	// Vertical alignment
+	if ef.VerticalAlignment != "" {
+		align := strings.ToLower(ef.VerticalAlignment)
+		if align == "top" || align == "middle" || align == "bottom" {
+			cf.VerticalAlign = &align
+		}
+	}
+
+	if cf.Bg == nil && cf.Fg == nil && !cf.Bold && cf.FontSize == nil &&
+		!cf.Italic && !cf.Underline && !cf.Strikethrough &&
+		cf.TextAlign == nil && cf.VerticalAlign == nil {
 		return nil
 	}
 	return cf

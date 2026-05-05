@@ -270,6 +270,72 @@ func (r *Repository) UpdateCellFormat(ctx context.Context, id int64, column stri
 	return &l, nil
 }
 
+func (r *Repository) BulkFormat(ctx context.Context, cells []BulkFormatCell) ([]Load, error) {
+	type update struct {
+		id     int64
+		column string
+		format json.RawMessage
+	}
+
+	// Deduplicate by (id, column)
+	seen := make(map[string]bool)
+	var updates []update
+	for _, cell := range cells {
+		key := fmt.Sprintf("%d:%s", cell.LoadID, cell.Column)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		updates = append(updates, update{id: cell.LoadID, column: cell.Column, format: cell.Format})
+	}
+
+	batch := &pgx.Batch{}
+	for _, u := range updates {
+		batch.Queue(`UPDATE loads SET
+			cell_formats = jsonb_set(COALESCE(cell_formats, '{}'), $1::text[], $2::jsonb),
+			updated_at = NOW()
+			WHERE id = $3
+			RETURNING id, pick_up_date_col1, commodity_col2, pickup_date_location_col3,
+				delivery_date_location_col4, assigned_user_col5, gate_code_col6,
+				rate_col7, rate_min, rate_max, is_bold, is_mcc, is_lock,
+				font_size, status, note_mcc, comments, order_number, cell_formats,
+				created_at, updated_at`,
+			[]string{u.column}, string(u.format), u.id)
+	}
+
+	results := r.db.SendBatch(ctx, batch)
+	defer results.Close()
+
+	loadMap := make(map[int64]*Load)
+	for i := 0; i < batch.Len(); i++ {
+		var l Load
+		if err := results.QueryRow().Scan(
+			&l.ID, &l.PickUpDateCol1, &l.CommodityCol2,
+			&l.PickupDateLocationCol3, &l.DeliveryDateLocationCol4,
+			&l.AssignedUserCol5, &l.GateCodeCol6,
+			&l.RateCol7, &l.RateMin, &l.RateMax,
+			&l.IsBold, &l.IsMCC, &l.IsLock,
+			&l.FontSize, &l.Status, &l.NoteMCC, &l.Comments,
+			&l.OrderNumber, &l.CellFormats,
+			&l.CreatedAt, &l.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("bulk format scan: %w", err)
+		}
+		loadMap[l.ID] = &l
+	}
+
+	if err := results.Close(); err != nil {
+		return nil, fmt.Errorf("bulk format close: %w", err)
+	}
+
+	result := make([]Load, 0, len(loadMap))
+	for _, l := range loadMap {
+		result = append(result, *l)
+	}
+
+	return result, nil
+}
+
 func (r *Repository) BulkOrder(ctx context.Context, items []BulkOrderItem) error {
 	batch := &pgx.Batch{}
 	for _, item := range items {

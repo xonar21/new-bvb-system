@@ -3,7 +3,11 @@ import type { Load } from '../../types/Load'
 
 const helper = createColumnHelper<Load>()
 
-export const columnToColKey: Record<string, string> = {
+export const COL_ORDER = ['col1', 'col2', 'col3', 'col4', 'col5', 'col6', 'col7', 'col8', 'col9'] as const
+
+export type ColKey = typeof COL_ORDER[number]
+
+export const columnToColKey: Record<string, ColKey> = {
   pick_up_date: 'col1',
   commodity: 'col2',
   pickup_location: 'col3',
@@ -11,6 +15,8 @@ export const columnToColKey: Record<string, string> = {
   assigned_user: 'col5',
   gate_code: 'col6',
   rate: 'col7',
+  rate_interval: 'col8',
+  notes: 'col9',
 }
 
 export const columns = [
