@@ -74,9 +74,6 @@ export function useUpdateLoad() {
           queryClient.setQueryData(key, data)
         })
       }
-    },
-
-    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['loads'] })
     },
   })
@@ -157,9 +154,6 @@ export function useUpdateCellFormat() {
           queryClient.setQueryData(key, data)
         })
       }
-    },
-
-    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['loads'] })
     },
   })
@@ -199,9 +193,6 @@ export function useUpdateBulkFormat() {
           queryClient.setQueryData(key, data)
         })
       }
-    },
-
-    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['loads'] })
     },
   })

@@ -16,6 +16,14 @@ type PresenceUser struct {
 	UserName string `json:"user_name"`
 }
 
+type CellFocusPayload struct {
+	LoadID   int64  `json:"load_id"`
+	Field    string `json:"field"`
+	Action   string `json:"action"`
+	UserID   int64  `json:"user_id,omitempty"`
+	UserName string `json:"user_name,omitempty"`
+}
+
 type PresenceList struct {
 	Users []PresenceUser `json:"users"`
 	Count int            `json:"count"`

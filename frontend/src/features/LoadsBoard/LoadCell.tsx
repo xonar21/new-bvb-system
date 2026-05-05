@@ -1,9 +1,9 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, useMemo, memo } from 'react'
 import type { CellContext } from '@tanstack/react-table'
 import type { Load } from '../../types/Load'
 import { useWSStore } from '../../store/wsStore'
 import { useAuthStore } from '../../store/authStore'
-import { useSelectionStore } from '../../store/selectionStore'
+import { useSelectionStore, useIsCellSelected } from '../../store/selectionStore'
 
 const USER_COLORS = [
   '#4a90d9', '#e67e22', '#2ecc71', '#9b59b6',
@@ -66,20 +66,24 @@ function getCellStyle(load: Load, colKey?: string): React.CSSProperties {
   }
 }
 
-export function LoadCell({ cell, onUpdate, colKey, onCellSelect, fillHeight }: LoadCellProps) {
+function LoadCellInner({ cell, onUpdate, colKey, onCellSelect, fillHeight }: LoadCellProps) {
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState(String(cell.getValue() ?? ''))
   const inputRef = useRef<HTMLInputElement>(null)
+
   const currentUser = useAuthStore((s) => s.user)
   const sendMessage = useWSStore((s) => s.sendMessage)
-  const focusedCells = useWSStore((s) => s.focusedCells)
-  const setCellFocus = useWSStore((s) => s.setCellFocus)
-  const removeCellFocus = useWSStore((s) => s.removeCellFocus)
 
   const loadId = cell.row.original.id
   const field = cell.column.id
   const focusKey = `${loadId}:${field}`
-  const focusInfo = focusedCells[focusKey]
+
+  // Per-cell subscriptions — only re-renders when THIS cell's focus/selection changes
+  const focusInfo = useWSStore((s) => s.focusedCells[focusKey])
+  const formatPainterActive = useSelectionStore((s) => s.formatPainterActive)
+  const cellKey = colKey ? `${loadId}:${colKey}` : ''
+  const isSelected = useIsCellSelected(cellKey)
+
   const isFocused = focusInfo !== undefined
   const isFocusedByOther = isFocused && focusInfo!.user_id !== currentUser?.id
   const isEditingByOther = isFocusedByOther && focusInfo!.editing
@@ -88,17 +92,6 @@ export function LoadCell({ cell, onUpdate, colKey, onCellSelect, fillHeight }: L
   const isLocked = cell.row.original.is_lock
   const isMCC = cell.row.original.is_mcc
   const isGateCode = cell.column.id === 'gate_code'
-
-  const isDragging = useSelectionStore((s) => s.isDragging)
-  const selectedCells = useSelectionStore((s) => s.selectedCells)
-  const formatPainterActive = useSelectionStore((s) => s.formatPainterActive)
-  const startDrag = useSelectionStore((s) => s.startDrag)
-  const extendDrag = useSelectionStore((s) => s.extendDrag)
-
-  const cellKey = colKey ? `${loadId}:${colKey}` : ''
-  const isSelected = selectedCells.has(cellKey)
-
-  // Module-level ref shared across all LoadCell instances (use global object directly)
 
   useEffect(() => {
     if (!editing) {
@@ -136,10 +129,10 @@ export function LoadCell({ cell, onUpdate, colKey, onCellSelect, fillHeight }: L
     if (isGateCode || isLocked || isFocusedByOther) return
     if (!currentUser || !sendMessage) return
 
-    // Already focused on this cell — no op
     if (loadMyFocusRef.current?.loadId === loadId && loadMyFocusRef.current?.field === field) return
 
-    // Clear previous focus
+    const { removeCellFocus, setCellFocus } = useWSStore.getState()
+
     if (loadMyFocusRef.current) {
       const prev = loadMyFocusRef.current
       sendMessage(
@@ -151,7 +144,6 @@ export function LoadCell({ cell, onUpdate, colKey, onCellSelect, fillHeight }: L
       removeCellFocus(prev.loadId, prev.field)
     }
 
-    // Set new focus
     loadMyFocusRef.current = { loadId, field }
     setCellFocus({
       user_id: currentUser.id,
@@ -161,7 +153,7 @@ export function LoadCell({ cell, onUpdate, colKey, onCellSelect, fillHeight }: L
     })
     sendFocus('focus')
     onCellSelect?.(loadId, colKey ?? field)
-  }, [isGateCode, isLocked, isFocusedByOther, currentUser, sendMessage, loadId, field, removeCellFocus, setCellFocus, sendFocus, onCellSelect, colKey])
+  }, [isGateCode, isLocked, isFocusedByOther, currentUser, sendMessage, loadId, field, sendFocus, onCellSelect, colKey])
 
   const handleDoubleClick = useCallback(() => {
     if (isGateCode || isLocked || isFocusedByOther) return
@@ -173,14 +165,14 @@ export function LoadCell({ cell, onUpdate, colKey, onCellSelect, fillHeight }: L
     setEditing(false)
     loadMyFocusRef.current = null
     sendFocus('blur')
-    removeCellFocus(loadId, field)
+    useWSStore.getState().removeCellFocus(loadId, field)
     const newVal = value.trim()
     const oldVal = String(cell.getValue() ?? '').trim()
     if (newVal !== oldVal) {
       const parsed = cell.column.id === 'rate' ? (Number(newVal) || null) : newVal || null
       onUpdate?.(cell.row.original.id, cell.column.id, parsed)
     }
-  }, [value, cell, onUpdate, sendFocus, removeCellFocus, loadId, field])
+  }, [value, cell, onUpdate, sendFocus, loadId, field])
 
   const handleBlur = useCallback(() => {
     if (!editing) return
@@ -200,7 +192,11 @@ export function LoadCell({ cell, onUpdate, colKey, onCellSelect, fillHeight }: L
     [cell],
   )
 
-  const cellStyle = getCellStyle(cell.row.original, colKey)
+  const cellStyle = useMemo(
+    () => getCellStyle(cell.row.original, colKey),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [cell.row.original.cell_formats, colKey, cell.row.original.is_bold],
+  )
 
   const selectionBg = isSelected
     ? (formatPainterActive
@@ -214,7 +210,9 @@ export function LoadCell({ cell, onUpdate, colKey, onCellSelect, fillHeight }: L
     e.preventDefault()
     if (!colKey || !currentUser) return
 
-    // Clear previous focus if any
+    const { removeCellFocus, setCellFocus } = useWSStore.getState()
+    const { startDrag } = useSelectionStore.getState()
+
     if (loadMyFocusRef.current) {
       const prev = loadMyFocusRef.current
       if (sendMessage) {
@@ -228,7 +226,6 @@ export function LoadCell({ cell, onUpdate, colKey, onCellSelect, fillHeight }: L
       removeCellFocus(prev.loadId, prev.field)
     }
 
-    // Set focus on drag start cell
     loadMyFocusRef.current = { loadId, field }
     if (sendMessage) {
       setCellFocus({
@@ -240,14 +237,16 @@ export function LoadCell({ cell, onUpdate, colKey, onCellSelect, fillHeight }: L
       sendFocus('focus')
     }
     startDrag(loadId, colKey)
-  }, [loadId, colKey, isGateCode, isLocked, currentUser, sendMessage, removeCellFocus, setCellFocus, sendFocus, startDrag])
+  }, [loadId, colKey, isGateCode, isLocked, currentUser, sendMessage, sendFocus])
 
   const handleMouseEnter = useCallback(() => {
-    if (!isDragging || !colKey) return
+    if (!colKey) return
+    const { isDragging, extendDrag } = useSelectionStore.getState()
+    if (!isDragging) return
     extendDrag(loadId, colKey)
-  }, [isDragging, loadId, colKey, extendDrag])
+  }, [loadId, colKey])
 
-    if (editing && !isGateCode && !isLocked) {
+  if (editing && !isGateCode && !isLocked) {
     return (
       <div style={{ position: 'relative' }}>
         <input
@@ -319,6 +318,25 @@ export function LoadCell({ cell, onUpdate, colKey, onCellSelect, fillHeight }: L
     </div>
   )
 }
+
+function areLoadCellPropsEqual(prev: LoadCellProps, next: LoadCellProps): boolean {
+  if (prev.colKey !== next.colKey) return false
+  if (prev.fillHeight !== next.fillHeight) return false
+  if (prev.onUpdate !== next.onUpdate) return false
+  if (prev.onCellSelect !== next.onCellSelect) return false
+  const po = prev.cell.row.original
+  const no = next.cell.row.original
+  if (po.id !== no.id) return false
+  if (po.is_lock !== no.is_lock) return false
+  if (po.is_bold !== no.is_bold) return false
+  if (po.is_mcc !== no.is_mcc) return false
+  if (prev.cell.getValue() !== next.cell.getValue()) return false
+  const colK = next.colKey ?? ''
+  if (JSON.stringify(po.cell_formats?.[colK]) !== JSON.stringify(no.cell_formats?.[colK])) return false
+  return true
+}
+
+export const LoadCell = memo(LoadCellInner, areLoadCellPropsEqual)
 
 function formatDate(val: string | null): string {
   if (!val) return ''

@@ -64,11 +64,11 @@ export const useSelectionStore = create<SelectionStore>((set, get) => ({
   },
 
   extendDrag: (loadId, col) => {
-    const { isDragging, dragStart, orderedLoadIds } = get()
+    const { isDragging, dragStart, dragEnd, orderedLoadIds } = get()
     if (!isDragging || !dragStart) return
-    set({ dragEnd: { loadId, col } })
+    if (dragEnd?.loadId === loadId && dragEnd?.col === col) return
     const cells = computeRect(dragStart, { loadId, col }, orderedLoadIds)
-    set({ selectedCells: cells })
+    set({ dragEnd: { loadId, col }, selectedCells: cells })
   },
 
   endDrag: () => {
@@ -103,3 +103,7 @@ export const useSelectionStore = create<SelectionStore>((set, get) => ({
     document.body.style.cursor = ''
   },
 }))
+
+export function useIsCellSelected(cellKey: string): boolean {
+  return useSelectionStore((s) => s.selectedCells.has(cellKey))
+}

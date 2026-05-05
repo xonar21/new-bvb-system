@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef } from 'react'
+import { useEffect, useCallback } from 'react'
 import { apiClient } from '../api/client'
 import { useTableLayoutStore } from '../store/tableLayoutStore'
 import type { TableLayoutResponse, LockAcquireResponse } from '../types/Load'
@@ -19,8 +19,6 @@ export function useTableLayout() {
     setIsLoading,
     resetLayout,
   } = useTableLayoutStore()
-
-  const debounceTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
 
   useEffect(() => {
     let cancelled = false
@@ -112,40 +110,34 @@ export function useTableLayout() {
     [],
   )
 
-  const debouncedUpdateColumnWidth = useCallback(
+  const updateColumnWidthLocal = useCallback(
     (colName: string, width: number) => {
-      const key = `col:${colName}`
-      if (debounceTimers.current[key]) {
-        clearTimeout(debounceTimers.current[key])
-      }
       updateColumnWidth(colName, width)
-      debounceTimers.current[key] = setTimeout(() => {
-        apiClient.put(`/api/table-layout/column/${encodeURIComponent(colName)}/width`, {
-          width,
-        }).catch(() => {
-          // conflict or error - will be handled by WebSocket sync
-        })
-      }, 200)
     },
     [updateColumnWidth],
   )
 
-  const debouncedUpdateRowHeight = useCallback(
+  const persistColumnWidth = useCallback(
+    (colName: string, width: number) => {
+      apiClient.put(`/api/table-layout/column/${encodeURIComponent(colName)}/width`, { width })
+        .catch(() => {})
+    },
+    [],
+  )
+
+  const updateRowHeightLocal = useCallback(
     (rowIdx: number, height: number) => {
-      const key = `row:${rowIdx}`
-      if (debounceTimers.current[key]) {
-        clearTimeout(debounceTimers.current[key])
-      }
       updateRowHeight(rowIdx, height)
-      debounceTimers.current[key] = setTimeout(() => {
-        apiClient.put(`/api/table-layout/row/${rowIdx}/height`, {
-          height,
-        }).catch(() => {
-          // silent
-        })
-      }, 200)
     },
     [updateRowHeight],
+  )
+
+  const persistRowHeight = useCallback(
+    (rowIdx: number, height: number) => {
+      apiClient.put(`/api/table-layout/row/${rowIdx}/height`, { height })
+        .catch(() => {})
+    },
+    [],
   )
 
   return {
@@ -161,8 +153,10 @@ export function useTableLayout() {
     getRowLockInfo,
     acquireLock,
     releaseLock,
-    debouncedUpdateColumnWidth,
-    debouncedUpdateRowHeight,
+    updateColumnWidthLocal,
+    persistColumnWidth,
+    updateRowHeightLocal,
+    persistRowHeight,
     updateColumnWidth,
     updateRowHeight,
     addLock,

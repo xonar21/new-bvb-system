@@ -66,12 +66,12 @@ func (c *Client) ReadPump() {
 			continue
 		}
 
-		var payload map[string]interface{}
+		var payload CellFocusPayload
 		if err := json.Unmarshal(raw.Payload, &payload); err != nil {
 			continue
 		}
-		payload["user_id"] = c.UserID
-		payload["user_name"] = c.UserName
+		payload.UserID = c.UserID
+		payload.UserName = c.UserName
 
 		enriched := Message{
 			Type:    "cell.focus",

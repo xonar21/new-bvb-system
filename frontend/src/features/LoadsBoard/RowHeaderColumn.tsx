@@ -15,11 +15,12 @@ export function RowResizeHandle({ rowIdx }: RowResizeHandleProps) {
     getRowLockInfo,
     acquireLock,
     releaseLock,
-    debouncedUpdateRowHeight,
+    updateRowHeightLocal,
+    persistRowHeight,
   } = useTableLayout()
 
   const currentUser = useAuthStore((s) => s.user)
-  const draggingRef = useRef<{ startY: number; startHeight: number } | null>(null)
+  const draggingRef = useRef<{ startY: number; startHeight: number; currentHeight?: number } | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const lockAcquired = useRef(false)
 
@@ -41,10 +42,14 @@ export function RowResizeHandle({ rowIdx }: RowResizeHandleProps) {
           if (!draggingRef.current) return
           const diff = ev.clientY - draggingRef.current.startY
           const newHeight = Math.max(20, draggingRef.current.startHeight + diff)
-          debouncedUpdateRowHeight(rowIdx, newHeight)
+          draggingRef.current.currentHeight = newHeight
+          updateRowHeightLocal(rowIdx, newHeight)
         }
 
         const onUp = () => {
+          if (draggingRef.current?.currentHeight !== undefined) {
+            persistRowHeight(rowIdx, draggingRef.current.currentHeight)
+          }
           if (lockAcquired.current) {
             releaseLock('row', String(rowIdx))
             lockAcquired.current = false
@@ -63,7 +68,7 @@ export function RowResizeHandle({ rowIdx }: RowResizeHandleProps) {
         document.body.style.userSelect = 'none'
       })
     },
-    [currentUser, rowIdx, acquireLock, releaseLock, getRowHeight, debouncedUpdateRowHeight],
+    [currentUser, rowIdx, acquireLock, releaseLock, getRowHeight, updateRowHeightLocal, persistRowHeight],
   )
 
   const locked = isRowLocked(rowIdx)

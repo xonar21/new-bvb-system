@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   flexRender,
   getCoreRowModel,
@@ -28,6 +28,16 @@ function useDebounce<T>(value: T, delay: number): T {
 }
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const
+
+const COLUMN_TO_FIELD: Record<string, string> = {
+  pick_up_date: 'pick_up_date_col1',
+  commodity: 'commodity_col2',
+  pickup_location: 'pickup_date_location_col3',
+  delivery_location: 'delivery_date_location_col4',
+  assigned_user: 'assigned_user_col5',
+  rate: 'rate_col7',
+  notes: 'note_mcc',
+}
 
 function getPageNumbers(current: number, total: number): (number | 'ellipsis')[] {
   if (total <= 7) {
@@ -91,10 +101,11 @@ export function LoadsBoard() {
     getColumnLockInfo,
     acquireLock: acquireLayoutLock,
     releaseLock: releaseLayoutLock,
-    debouncedUpdateColumnWidth,
+    updateColumnWidthLocal,
+    persistColumnWidth,
   } = useTableLayout()
 
-  const columnResizeDragging = useRef<{ colId: string; startX: number; startWidth: number } | null>(null)
+  const columnResizeDragging = useRef<{ colId: string; startX: number; startWidth: number; currentWidth?: number } | null>(null)
   const columnLockAcquired = useRef<Record<string, boolean>>({})
 
   const queryClient = useQueryClient()
@@ -167,9 +178,7 @@ export function LoadsBoard() {
     return () => document.removeEventListener('mouseup', onUp)
   }, [endDrag, deactivateFormatPainter, queryClient])
 
-  const handleCellSelect = (_loadId: number, _colKey: string) => {
-    // Cell focus tracking - handled by selection store now
-  }
+  const handleCellSelect = useCallback((_loadId: number, _colKey: string) => {}, [])
 
   const actualPageSize = pageSize > 0 ? pageSize : (loads?.length ?? 50)
 
@@ -183,20 +192,13 @@ export function LoadsBoard() {
     getPaginationRowModel: getPaginationRowModel(),
   })
 
-  const columnToField: Record<string, string> = {
-    pick_up_date: 'pick_up_date_col1',
-    commodity: 'commodity_col2',
-    pickup_location: 'pickup_date_location_col3',
-    delivery_location: 'delivery_date_location_col4',
-    assigned_user: 'assigned_user_col5',
-    rate: 'rate_col7',
-    notes: 'note_mcc',
-  }
-
-  const handleUpdate = (id: number, key: string, value: string | number | null) => {
-    const field = columnToField[key] ?? key
-    updateMutation.mutate({ id, data: { [field]: value } })
-  }
+  const handleUpdate = useCallback(
+    (id: number, key: string, value: string | number | null) => {
+      const field = COLUMN_TO_FIELD[key] ?? key
+      updateMutation.mutate({ id, data: { [field]: value } })
+    },
+    [updateMutation],
+  )
 
   const handleColumnResizeMouseDown = (e: React.MouseEvent, colId: string) => {
     e.preventDefault()
@@ -211,14 +213,16 @@ export function LoadsBoard() {
         if (!columnResizeDragging.current) return
         const diff = ev.clientX - columnResizeDragging.current.startX
         const newWidth = Math.max(50, columnResizeDragging.current.startWidth + diff)
-        debouncedUpdateColumnWidth(columnResizeDragging.current.colId, newWidth)
+        columnResizeDragging.current.currentWidth = newWidth
+        updateColumnWidthLocal(columnResizeDragging.current.colId, newWidth)
       }
 
       const onUp = () => {
         if (columnResizeDragging.current) {
-          const id = columnResizeDragging.current.colId
-          releaseLayoutLock('column', id)
-          columnLockAcquired.current[id] = false
+          const { colId, startWidth, currentWidth } = columnResizeDragging.current
+          persistColumnWidth(colId, currentWidth ?? startWidth)
+          releaseLayoutLock('column', colId)
+          columnLockAcquired.current[colId] = false
         }
         columnResizeDragging.current = null
         document.removeEventListener('mousemove', onMove)
