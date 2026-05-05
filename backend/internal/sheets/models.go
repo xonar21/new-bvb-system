@@ -2,6 +2,15 @@ package sheets
 
 import "time"
 
+type CellFormat struct {
+	Bg       *string `json:"bg,omitempty"`
+	Fg       *string `json:"fg,omitempty"`
+	Bold     bool    `json:"bold,omitempty"`
+	FontSize *int    `json:"fontSize,omitempty"`
+}
+
+type RowFormats map[string]CellFormat
+
 type RawLoad struct {
 	PickUpDate        string
 	Commodity         string
@@ -18,4 +27,5 @@ type RawLoad struct {
 	RateMax           int
 	ParsedPickUpDate  time.Time
 	IsGreenRow        bool
+	Formats           RowFormats
 }

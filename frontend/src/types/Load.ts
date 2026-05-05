@@ -1,3 +1,10 @@
+export interface CellFormat {
+  bg?: string | null
+  fg?: string | null
+  bold?: boolean
+  fontSize?: number | null
+}
+
 export interface Load {
   id: number
   pick_up_date_col1: string | null
@@ -17,9 +24,15 @@ export interface Load {
   note_mcc: string | null
   comments: string | null
   order_number: number | null
-  cell_formats: string | null
+  cell_formats: Record<string, CellFormat> | null
   created_at: string
   updated_at: string
+}
+
+export interface UpdateCellFormatArgs {
+  id: number
+  column: string
+  format: CellFormat
 }
 
 export interface UpdateLoadRequest {

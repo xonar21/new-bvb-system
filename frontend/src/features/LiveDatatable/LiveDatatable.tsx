@@ -8,9 +8,10 @@ import {
 } from '@tanstack/react-table'
 import type { SortingState } from '@tanstack/react-table'
 import { useLoads, useUpdateLoad } from '../../hooks/useLoads'
-import { columns } from './columns'
+import { columns, columnToColKey } from './columns'
 import { LoadCell } from './LoadCell'
 import { OnlineUsersBar } from './OnlineUsersBar'
+import { FormatToolbar } from './FormatToolbar'
 
 function useDebounce<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState(value)
@@ -73,8 +74,22 @@ export function LiveDatatable() {
     [debouncedDateFrom, debouncedDateTo, search],
   )
 
+  const [selectedCell, setSelectedCell] = useState<{ loadId: number; colKey: string } | null>(null)
+
   const { data: loads, isLoading, isError, error } = useLoads(filters)
   const updateMutation = useUpdateLoad()
+
+  const handleCellSelect = (loadId: number, colKey: string) => {
+    setSelectedCell({ loadId, colKey })
+  }
+
+  const selectedLoad = selectedCell
+    ? loads?.find((l) => l.id === selectedCell.loadId)
+    : undefined
+
+  const selectedFormat = selectedCell && selectedLoad
+    ? selectedLoad.cell_formats?.[selectedCell.colKey]
+    : undefined
 
   const actualPageSize = pageSize > 0 ? pageSize : (loads?.length ?? 50)
 
@@ -164,6 +179,17 @@ export function LiveDatatable() {
         </div>
       </div>
 
+      {selectedCell && (
+        <div style={{ marginBottom: '8px', flexShrink: 0 }}>
+          <FormatToolbar
+            loadId={selectedCell.loadId}
+            colKey={selectedCell.colKey}
+            currentFormat={selectedFormat}
+            onClose={() => setSelectedCell(null)}
+          />
+        </div>
+      )}
+
       <div style={{ flex: 1, overflow: 'auto', border: '1px solid #ddd', borderRadius: '4px' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
           <thead>
@@ -229,7 +255,12 @@ export function LiveDatatable() {
                         whiteSpace: 'nowrap',
                       }}
                     >
-                      <LoadCell cell={cell as any} onUpdate={handleUpdate} />
+                      <LoadCell
+                        cell={cell as any}
+                        onUpdate={handleUpdate}
+                        colKey={columnToColKey[cell.column.id]}
+                        onCellSelect={handleCellSelect}
+                      />
                     </td>
                   ))}
                 </tr>

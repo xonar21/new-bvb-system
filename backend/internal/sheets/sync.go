@@ -2,6 +2,7 @@ package sheets
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math"
@@ -228,6 +229,16 @@ func (s *SheetsSync) parseRowData(cells []*sheets.CellData) (*RawLoad, bool) {
 
 	rate := getInt(6)
 
+	colKeys := []string{"col1", "col2", "col3", "col4", "col5", "col6", "col7"}
+	formats := RowFormats{}
+	for i, key := range colKeys {
+		if i < len(cells) {
+			if cf := extractCellFormat(cells[i]); cf != nil {
+				formats[key] = *cf
+			}
+		}
+	}
+
 	load := &RawLoad{
 		PickUpDate:       parsedDate.Format("2006-01-02"),
 		Commodity:        getString(1),
@@ -240,6 +251,7 @@ func (s *SheetsSync) parseRowData(cells []*sheets.CellData) (*RawLoad, bool) {
 		Notes:            getString(8),
 		ParsedPickUpDate: *parsedDate,
 		IsGreenRow:       isGreen,
+		Formats:          formats,
 	}
 
 	return load, isGreen
@@ -256,6 +268,45 @@ func (s *SheetsSync) isGreenRow(cells []*sheets.CellData) bool {
 	return math.Abs(bg.Red-greenRowRed) <= colorTolerance &&
 		math.Abs(bg.Green-greenRowGreen) <= colorTolerance &&
 		math.Abs(bg.Blue-greenRowBlue) <= colorTolerance
+}
+
+func extractCellFormat(cell *sheets.CellData) *CellFormat {
+	if cell == nil || cell.EffectiveFormat == nil {
+		return nil
+	}
+	ef := cell.EffectiveFormat
+	tf := ef.TextFormat
+
+	cf := &CellFormat{Bold: tf != nil && tf.Bold}
+
+	if ef.BackgroundColor != nil {
+		hex := rgbToHex(ef.BackgroundColor)
+		if hex != "#ffffff" {
+			cf.Bg = &hex
+		}
+	}
+	if tf != nil && tf.ForegroundColor != nil {
+		hex := rgbToHex(tf.ForegroundColor)
+		if hex != "#000000" {
+			cf.Fg = &hex
+		}
+	}
+	if tf != nil && tf.FontSize > 0 && tf.FontSize != 10 {
+		fs := int(tf.FontSize)
+		cf.FontSize = &fs
+	}
+
+	if cf.Bg == nil && cf.Fg == nil && !cf.Bold && cf.FontSize == nil {
+		return nil
+	}
+	return cf
+}
+
+func rgbToHex(c *sheets.Color) string {
+	r := int(c.Red * 255)
+	g := int(c.Green * 255)
+	b := int(c.Blue * 255)
+	return fmt.Sprintf("#%02x%02x%02x", r, g, b)
 }
 
 func (s *SheetsSync) retryFetch(ctx context.Context, rangeStr string) error {
@@ -294,23 +345,28 @@ func (s *SheetsSync) processLoads(ctx context.Context, rawLoads []RawLoad) error
 	return s.batchInsertNew(ctx, rawLoads)
 }
 
-func (s *SheetsSync) batchInsertNew(ctx context.Context, loads []RawLoad) error {
+func (s *SheetsSync) batchInsertNew(ctx context.Context, rawLoads []RawLoad) error {
 	batch := &pgx.Batch{}
 
-	for _, load := range loads {
+	for _, load := range rawLoads {
+		var formatsJSON []byte
+		if len(load.Formats) > 0 {
+			formatsJSON, _ = json.Marshal(load.Formats)
+		}
+
 		batch.Queue(`
 			INSERT INTO loads (
 				pick_up_date_col1, commodity_col2, pickup_date_location_col3,
 				delivery_date_location_col4, assigned_user_col5, gate_code_col6,
 				rate_col7, rate_min, rate_max, is_bold, is_mcc, note_mcc,
-				created_at, updated_at
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
+				cell_formats, created_at, updated_at
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, NOW(), NOW())
 			ON CONFLICT (gate_code_col6) DO NOTHING
 		`,
 			load.PickUpDate, load.Commodity, load.PickupLocation,
 			load.DeliveryLocation, load.AssignedUser, load.GateCode,
 			load.Rate, load.RateMin, load.RateMax, load.IsBold,
-			load.IsMCC, load.Notes)
+			load.IsMCC, load.Notes, string(formatsJSON))
 	}
 
 	results := s.db.SendBatch(ctx, batch)

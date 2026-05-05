@@ -19,10 +19,25 @@ const loadMyFocusRef: { current: { loadId: number; field: string } | null } = { 
 
 interface LoadCellProps {
   cell: CellContext<Load, unknown>
-  onUpdate: (id: number, key: string, value: string | number | null) => void
+  onUpdate?: (id: number, key: string, value: string | number | null) => void
+  colKey?: string
+  onCellSelect?: (loadId: number, colKey: string) => void
 }
 
-export function LoadCell({ cell, onUpdate }: LoadCellProps) {
+function getCellStyle(load: Load, colKey?: string): React.CSSProperties {
+  if (!colKey) return {}
+  const fmt = load.cell_formats?.[colKey]
+  if (!fmt) return {}
+
+  return {
+    backgroundColor: fmt.bg ?? undefined,
+    color: fmt.fg ?? undefined,
+    fontWeight: fmt.bold || load.is_bold ? 700 : 400,
+    fontSize: fmt.fontSize ? `${fmt.fontSize}pt` : undefined,
+  }
+}
+
+export function LoadCell({ cell, onUpdate, colKey, onCellSelect }: LoadCellProps) {
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState(String(cell.getValue() ?? ''))
   const inputRef = useRef<HTMLInputElement>(null)
@@ -107,7 +122,8 @@ export function LoadCell({ cell, onUpdate }: LoadCellProps) {
       field,
     })
     sendFocus('focus')
-  }, [isGateCode, isLocked, isFocusedByOther, currentUser, sendMessage, loadId, field, removeCellFocus, setCellFocus, sendFocus])
+    onCellSelect?.(loadId, colKey ?? field)
+  }, [isGateCode, isLocked, isFocusedByOther, currentUser, sendMessage, loadId, field, removeCellFocus, setCellFocus, sendFocus, onCellSelect, colKey])
 
   const handleDoubleClick = useCallback(() => {
     if (isGateCode || isLocked || isFocusedByOther) return
@@ -124,7 +140,7 @@ export function LoadCell({ cell, onUpdate }: LoadCellProps) {
     const oldVal = String(cell.getValue() ?? '').trim()
     if (newVal !== oldVal) {
       const parsed = cell.column.id === 'rate' ? (Number(newVal) || null) : newVal || null
-      onUpdate(cell.row.original.id, cell.column.id, parsed)
+      onUpdate?.(cell.row.original.id, cell.column.id, parsed)
     }
   }, [value, cell, onUpdate, sendFocus, removeCellFocus, loadId, field])
 
@@ -146,6 +162,8 @@ export function LoadCell({ cell, onUpdate }: LoadCellProps) {
     [cell],
   )
 
+  const cellStyle = getCellStyle(cell.row.original, colKey)
+
   if (editing && !isGateCode && !isLocked) {
     return (
       <div style={{ position: 'relative' }}>
@@ -160,9 +178,10 @@ export function LoadCell({ cell, onUpdate }: LoadCellProps) {
             border: '1px solid #4a90d9',
             outline: 'none',
             padding: '2px 4px',
-            fontSize: 'inherit',
-            fontWeight: isBold ? 700 : 400,
-            background: '#fff',
+            fontSize: cellStyle.fontSize ?? 'inherit',
+            fontWeight: cellStyle.fontWeight ?? (isBold ? 700 : 400),
+            color: cellStyle.color ?? undefined,
+            background: cellStyle.backgroundColor ?? '#fff',
           }}
         />
       </div>
@@ -176,8 +195,10 @@ export function LoadCell({ cell, onUpdate }: LoadCellProps) {
       style={{
         position: 'relative',
         cursor: isGateCode || isLocked || isFocusedByOther ? 'default' : 'pointer',
-        fontWeight: isBold ? 700 : 400,
-        background: isMCC ? '#fff3cd' : isEditingByOther ? '#f5f5f5' : isFocused ? '#f0f7ff' : 'transparent',
+        fontWeight: cellStyle.fontWeight ?? (isBold ? 700 : 400),
+        background: cellStyle.backgroundColor ?? (isMCC ? '#fff3cd' : isEditingByOther ? '#f5f5f5' : isFocused ? '#f0f7ff' : 'transparent'),
+        color: cellStyle.color ?? undefined,
+        fontSize: cellStyle.fontSize ?? undefined,
         display: 'block',
         minHeight: '20px',
         padding: '2px 4px',

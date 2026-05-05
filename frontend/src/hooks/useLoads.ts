@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '../api/client'
-import type { BulkOrderItem, Load, LoadsResponse, UpdateLoadRequest } from '../types/Load'
+import type { BulkOrderItem, CellFormat, Load, LoadsResponse, UpdateCellFormatArgs, UpdateLoadRequest } from '../types/Load'
 
 interface LoadsFilters {
   date_from?: string
@@ -99,6 +99,49 @@ export function useDeleteLoad() {
     },
 
     onError: (_err, _id, ctx) => {
+      if (ctx?.prev) {
+        queryClient.setQueryData(['loads'], ctx.prev)
+      }
+    },
+
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['loads'] })
+    },
+  })
+}
+
+export function useUpdateCellFormat() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ id, column, format }: UpdateCellFormatArgs) => {
+      const res = await apiClient.patch<{ load: Load }>(`/api/loads/${id}/format`, { column, format })
+      return res.load
+    },
+
+    onMutate: async ({ id, column, format }) => {
+      await queryClient.cancelQueries({ queryKey: ['loads'] })
+
+      const prev = queryClient.getQueryData<Load[]>(['loads'])
+
+      queryClient.setQueryData<Load[]>(['loads'], (old) =>
+        old?.map((load) =>
+          load.id === id
+            ? {
+                ...load,
+                cell_formats: {
+                  ...load.cell_formats,
+                  [column]: format,
+                } as Record<string, CellFormat>,
+              }
+            : load,
+        ) ?? [],
+      )
+
+      return { prev }
+    },
+
+    onError: (_err, _vars, ctx) => {
       if (ctx?.prev) {
         queryClient.setQueryData(['loads'], ctx.prev)
       }

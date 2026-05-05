@@ -8,6 +8,11 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
+var validColumns = map[string]bool{
+	"col1": true, "col2": true, "col3": true, "col4": true,
+	"col5": true, "col6": true, "col7": true,
+}
+
 type Handler struct {
 	repo *Repository
 	hub  *ws.Hub
@@ -24,6 +29,7 @@ func (h *Handler) RegisterRoutes(api fiber.Router, auth fiber.Handler) {
 	loads.Post("/", h.Store)
 	loads.Put("/:id", h.Update)
 	loads.Delete("/:id", h.Delete)
+	loads.Patch("/:id/format", h.UpdateFormat)
 	loads.Post("/bulk-order", h.BulkOrder)
 }
 
@@ -136,6 +142,37 @@ func (h *Handler) Delete(c *fiber.Ctx) error {
 	})
 
 	return c.JSON(fiber.Map{"message": "deleted"})
+}
+
+func (h *Handler) UpdateFormat(c *fiber.Ctx) error {
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "invalid id"})
+	}
+
+	var req FormatRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if !validColumns[req.Column] {
+		return c.Status(400).JSON(fiber.Map{"error": "invalid column"})
+	}
+
+	load, err := h.repo.UpdateCellFormat(c.Context(), id, req.Column, req.Format)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+	if load == nil {
+		return c.Status(404).JSON(fiber.Map{"error": "not found"})
+	}
+
+	go h.hub.Broadcast(ws.Message{
+		Type:    "load.updated",
+		Payload: load,
+	})
+
+	return c.JSON(fiber.Map{"load": load})
 }
 
 func (h *Handler) BulkOrder(c *fiber.Ctx) error {

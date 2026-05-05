@@ -3,6 +3,16 @@ import type { Load } from '../../types/Load'
 
 const helper = createColumnHelper<Load>()
 
+export const columnToColKey: Record<string, string> = {
+  pick_up_date: 'col1',
+  commodity: 'col2',
+  pickup_location: 'col3',
+  delivery_location: 'col4',
+  assigned_user: 'col5',
+  gate_code: 'col6',
+  rate: 'col7',
+}
+
 export const columns = [
   helper.accessor('pick_up_date_col1', {
     header: 'Pick Up Date',

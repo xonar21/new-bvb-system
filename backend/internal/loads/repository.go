@@ -2,6 +2,7 @@ package loads
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -190,6 +191,11 @@ func (r *Repository) Update(ctx context.Context, id int64, req UpdateRequest) (*
 	if req.Status != nil { addField("status", *req.Status) }
 	if req.Comments != nil { addField("comments", *req.Comments) }
 	if req.OrderNumber != nil { addField("order_number", *req.OrderNumber) }
+	if req.CellFormats != nil {
+		sets = append(sets, fmt.Sprintf("cell_formats = $%d::jsonb", argIdx))
+		args = append(args, string(*req.CellFormats))
+		argIdx++
+	}
 
 	if len(sets) == 0 {
 		return r.Get(ctx, id)
@@ -230,6 +236,38 @@ func (r *Repository) Update(ctx context.Context, id int64, req UpdateRequest) (*
 func (r *Repository) Delete(ctx context.Context, id int64) error {
 	_, err := r.db.Exec(ctx, `DELETE FROM loads WHERE id = $1`, id)
 	return err
+}
+
+func (r *Repository) UpdateCellFormat(ctx context.Context, id int64, column string, format json.RawMessage) (*Load, error) {
+	query := `UPDATE loads SET
+		cell_formats = jsonb_set(COALESCE(cell_formats, '{}'), $1::text[], $2::jsonb),
+		updated_at = NOW()
+		WHERE id = $3
+		RETURNING id, pick_up_date_col1, commodity_col2, pickup_date_location_col3,
+			delivery_date_location_col4, assigned_user_col5, gate_code_col6,
+			rate_col7, rate_min, rate_max, is_bold, is_mcc, is_lock,
+			font_size, status, note_mcc, comments, order_number, cell_formats,
+			created_at, updated_at`
+
+	var l Load
+	err := r.db.QueryRow(ctx, query, []string{column}, format, id).Scan(
+		&l.ID, &l.PickUpDateCol1, &l.CommodityCol2,
+		&l.PickupDateLocationCol3, &l.DeliveryDateLocationCol4,
+		&l.AssignedUserCol5, &l.GateCodeCol6,
+		&l.RateCol7, &l.RateMin, &l.RateMax,
+		&l.IsBold, &l.IsMCC, &l.IsLock,
+		&l.FontSize, &l.Status, &l.NoteMCC, &l.Comments,
+		&l.OrderNumber, &l.CellFormats,
+		&l.CreatedAt, &l.UpdatedAt,
+	)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("update cell format: %w", err)
+	}
+
+	return &l, nil
 }
 
 func (r *Repository) BulkOrder(ctx context.Context, items []BulkOrderItem) error {
