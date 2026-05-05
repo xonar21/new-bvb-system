@@ -312,7 +312,17 @@ export function LoadCell({ cell, onUpdate, colKey, onCellSelect }: LoadCellProps
                 : 'Click to focus'
       }
     >
-      {cell.getValue() as string}
+      {cell.column.id === 'pick_up_date' ? formatDate(cell.getValue() as string | null) : (cell.getValue() as string)}
     </div>
   )
+}
+
+function formatDate(val: string | null): string {
+  if (!val) return ''
+  const d = new Date(val)
+  if (isNaN(d.getTime())) return val
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0')
+  const dd = String(d.getUTCDate()).padStart(2, '0')
+  const yyyy = d.getUTCFullYear()
+  return `${mm}/${dd}/${yyyy}`
 }

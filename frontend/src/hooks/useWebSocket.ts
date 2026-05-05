@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useWSStore } from '../store/wsStore'
-import type { CellFocusPayload, Load, WSMessage } from '../types/Load'
+import { useTableLayoutStore } from '../store/tableLayoutStore'
+import type { CellFocusPayload, LayoutColumnWidthChanged, LayoutLockAcquired, LayoutLockReleased, LayoutRowHeightChanged, Load, LockInfo, WSMessage } from '../types/Load'
 
 const WS_URL = import.meta.env.VITE_WS_URL || '/ws'
 const RECONNECT_DELAY = 2000
@@ -105,16 +106,55 @@ export function useWebSocket(token: string | null) {
               break
             }
 
-            case 'presence': {
-              const payload = msg.payload as { users: { user_id: number; user_name: string }[]; count: number }
-              setOnlineUsers(payload.users.map(u => ({
-                user_id: u.user_id,
-                user_name: u.user_name || `User ${u.user_id}`,
-              })))
-              clearOfflineUserFocuses(new Set(payload.users.map(u => u.user_id)))
-              break
-            }
-          }
+			case 'presence': {
+				const payload = msg.payload as { users: { user_id: number; user_name: string }[]; count: number }
+				setOnlineUsers(payload.users.map(u => ({
+					user_id: u.user_id,
+					user_name: u.user_name || `User ${u.user_id}`,
+				})))
+				clearOfflineUserFocuses(new Set(payload.users.map(u => u.user_id)))
+				break
+			}
+
+			case 'ip.restriction-changed': {
+				queryClient.invalidateQueries({ queryKey: ['ip-check'] })
+				break
+			}
+
+			case 'layout.column-width-changed': {
+				const p = msg.payload as LayoutColumnWidthChanged
+				useTableLayoutStore.getState().updateColumnWidth(p.column_name, p.width)
+				break
+			}
+
+			case 'layout.row-height-changed': {
+				const p = msg.payload as LayoutRowHeightChanged
+				useTableLayoutStore.getState().updateRowHeight(Number(p.row_index), p.height)
+				break
+			}
+
+			case 'layout.lock-acquired': {
+				const p = msg.payload as LayoutLockAcquired
+				const info: LockInfo = {
+					user_id: p.user_id,
+					user_name: p.user_name,
+					expires_at: p.expires_at || new Date(Date.now() + 30000).toISOString(),
+				}
+				useTableLayoutStore.getState().addLock(p.target_type as 'column' | 'row', p.target_name, info)
+				break
+			}
+
+			case 'layout.lock-released': {
+				const p = msg.payload as LayoutLockReleased
+				useTableLayoutStore.getState().removeLock(p.target_type as 'column' | 'row', p.target_name)
+				break
+			}
+
+			case 'layout.reset': {
+				useTableLayoutStore.getState().resetLayout()
+				break
+			}
+		  }
         } catch {
           // ignore parse errors
         }

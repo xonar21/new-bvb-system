@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { CellFormat } from '../types/Load'
-import { COL_ORDER } from '../features/LiveDatatable/columns'
+import { COL_ORDER } from '../features/LoadsBoard/columns'
 
 function computeRect(
   start: { loadId: number; col: string },

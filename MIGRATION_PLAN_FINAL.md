@@ -1,5 +1,5 @@
-# План реализации: Live-Datatable на Go + React + PostgreSQL
-**Проект:** BVB Freight — Live Datatable  
+# План реализации: BVB Freight на Go + React + PostgreSQL
+**Проект:** BVB Freight  
 **Статус:** Новый НЕЗАВИСИМЫЙ проект (не связан с Laravel)  
 **Дата:** 2026-05-04
 
@@ -633,8 +633,8 @@ bvb-react-datatable/
 │   ├── types/
 │   │   └── Load.ts
 │   ├── features/
-│   │   └── LiveDatatable/
-│   │       ├── LiveDatatable.tsx
+│   │   └── LoadsBoard/
+│   │       ├── LoadsBoard.tsx
 │   │       ├── LoadRow.tsx
 │   │       ├── LoadCell.tsx
 │   │       └── columns.ts
@@ -772,7 +772,7 @@ export function useWebSocket() {
 - [ ] API client: fetch wrapper с auth token
 - [ ] Hooks: useLoads (TanStack Query), useWebSocket (native WS)
 - [ ] Stores: authStore (Zustand), wsStore
-- [ ] Components: LiveDatatable, LoadRow, LoadCell, OnlineUsersBar
+- [ ] Components: LoadsBoard, LoadRow, LoadCell, OnlineUsersBar
 - [ ] Columns: 9 колонок TanStack Table
 - [ ] Features: cell edit (debounce 600ms), drag-reorder, cell focus whispers
 - [ ] Styling: Tailwind CSS

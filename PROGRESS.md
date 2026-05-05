@@ -1,4 +1,4 @@
-# BVB Freight — Live Datatable Migration Progress
+# BVB Freight — Migration Progress
 
 ## Статус выполнения
 
@@ -22,7 +22,7 @@
 - [x] **Task 2.2**: Types, API client, env config
 - [x] **Task 2.3**: Hooks (useLoads — TanStack Query, useWebSocket — native WS)
 - [x] **Task 2.4**: Stores (authStore, wsStore — Zustand)
-- [x] **Task 2.5**: Компоненты (LiveDatatable, LoadRow, LoadCell, columns, OnlineUsersBar)
+- [x] **Task 2.5**: Компоненты (LoadsBoard, LoadRow, LoadCell, columns, OnlineUsersBar)
 - [x] **Task 2.6**: Интеграция (App.tsx, main.tsx, роутинг, логин)
 
 ### Фаза 3: Деплой

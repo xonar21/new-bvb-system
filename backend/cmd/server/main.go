@@ -9,6 +9,7 @@ import (
 	"bvb-datatable/internal/auth"
 	"bvb-datatable/internal/config"
 	"bvb-datatable/internal/db"
+	"bvb-datatable/internal/layout"
 	"bvb-datatable/internal/loads"
 	"bvb-datatable/internal/sheets"
 	"bvb-datatable/internal/users"
@@ -103,9 +104,17 @@ func main() {
 	usersHandler := users.NewHandler(userRepo)
 	usersHandler.RegisterRoutes(api, authMW, auth.RequireRole("root"))
 
+	layoutRepo := layout.NewRepository(pgPool)
+	layoutHandler := layout.NewHandler(layoutRepo, wsHub)
+	layoutHandler.RegisterRoutes(api, authMW, auth.RequireRole("root"))
+	layout.StartLockCleanup(layoutRepo, wsHub)
+
 	allowedIPsRepo := allowedips.NewRepository(pgPool)
-	allowedIPsHandler := allowedips.NewHandler(allowedIPsRepo)
+	allowedIPsMiddleware := allowedips.NewIPMiddleware(allowedIPsRepo)
+	allowedIPsHandler := allowedips.NewHandler(allowedIPsRepo, wsHub)
 	allowedIPsHandler.RegisterRoutes(api, authMW, auth.RequireRole("root"))
+
+	api.Use(allowedIPsMiddleware.Handler())
 
 	if sheetSync != nil {
 		syncHandler := sheets.NewHandler(sheetSync)
@@ -122,10 +131,19 @@ func main() {
 			return c.Status(401).JSON(fiber.Map{"error": "invalid or expired token"})
 		}
 
+		if !allowedIPsMiddleware.IsAllowed(c) {
+			return c.Status(403).JSON(fiber.Map{"error": "ip_not_allowed"})
+		}
+
 		handler := websocket.New(func(conn *websocket.Conn) {
 			ws.HandleWS(conn, wsHub, claims.UserID, claims.Email)
 		})
 		return handler(c)
+	})
+
+	go db.ListenAllowedIPsChanged(context.Background(), cfg.PostgresDSN, func(ctx context.Context) {
+		allowedIPsMiddleware.Refresh()
+		wsHub.BroadcastBytes([]byte(`{"type":"ip.restriction-changed","payload":{}}`))
 	})
 
 	log.Printf("Server starting on :%s", cfg.Port)

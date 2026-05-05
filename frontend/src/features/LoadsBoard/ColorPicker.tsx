@@ -38,7 +38,7 @@ export function ColorPicker({ value, onChange, onClose, label: _label, anchorEl 
 
   useClickOutside(popupRef, onClose)
 
-  const [position, setPosition] = useState({ top: 0, left: 0 })
+  const [position, setPosition] = useState<{ top: number; left: number } | null>(null)
   useEffect(() => {
     if (anchorEl) {
       const rect = anchorEl.getBoundingClientRect()
@@ -74,6 +74,8 @@ export function ColorPicker({ value, onChange, onClose, label: _label, anchorEl 
       } catch { }
     }
   }, [onChange, onClose])
+
+  if (!position) return null
 
   return createPortal(
     <div

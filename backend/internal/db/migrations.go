@@ -67,6 +67,47 @@ func Migrate(pool *pgxpool.Pool) {
 
 	CREATE INDEX IF NOT EXISTS idx_allowed_ips_ip ON allowed_ips(ip);
 
+	CREATE OR REPLACE FUNCTION allowed_ips_notify()
+	RETURNS TRIGGER AS $$
+	BEGIN
+		PERFORM pg_notify('allowed_ips_changed', '');
+		RETURN NULL;
+	END;
+	$$ LANGUAGE plpgsql;
+
+	DROP TRIGGER IF EXISTS allowed_ips_change_trigger ON allowed_ips;
+	CREATE TRIGGER allowed_ips_change_trigger
+		AFTER INSERT OR DELETE ON allowed_ips
+		FOR EACH STATEMENT EXECUTE FUNCTION allowed_ips_notify();
+
+	CREATE TABLE IF NOT EXISTS table_layouts (
+		id SERIAL PRIMARY KEY,
+		created_at TIMESTAMPTZ DEFAULT NOW(),
+		updated_at TIMESTAMPTZ DEFAULT NOW(),
+		last_edited_by INT REFERENCES users(id),
+		last_edited_at TIMESTAMPTZ DEFAULT NOW(),
+		column_widths JSONB DEFAULT '{}',
+		row_heights JSONB DEFAULT '{}',
+		column_locks JSONB DEFAULT '{}',
+		row_locks JSONB DEFAULT '{}'
+	);
+
+	CREATE TABLE IF NOT EXISTS layout_edit_sessions (
+		id SERIAL PRIMARY KEY,
+		user_id INT REFERENCES users(id),
+		target_type VARCHAR(20) NOT NULL,
+		target_name VARCHAR(100) NOT NULL,
+		locked_at TIMESTAMPTZ DEFAULT NOW(),
+		expires_at TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '30 seconds')
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_layout_edit_sessions_expires ON layout_edit_sessions(expires_at);
+	CREATE INDEX IF NOT EXISTS idx_layout_edit_sessions_target ON layout_edit_sessions(target_type, target_name);
+
+	INSERT INTO table_layouts (id, column_widths, row_heights)
+	VALUES (1, '{}', '{}')
+	ON CONFLICT (id) DO NOTHING;
+
 	CREATE OR REPLACE FUNCTION loads_notify_insert()
 	RETURNS TRIGGER AS $$
 	BEGIN

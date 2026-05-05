@@ -1,15 +1,29 @@
-import { useState } from 'react'
-import { useIpCheck } from '../hooks/useIpCheck'
+import { useEffect, useRef } from 'react'
+import { useAuthStore } from '../store/authStore'
 
-export function AccessDeniedPage() {
-  const { data, refetch, isFetching } = useIpCheck()
-  const [checking, setChecking] = useState(false)
+interface IpCheckData {
+  currentIp: string
+  isAllowed: boolean
+}
 
-  const handleRetry = async () => {
-    setChecking(true)
-    await refetch()
-    setChecking(false)
-  }
+export function AccessDeniedPage({ ipCheck }: { ipCheck?: IpCheckData }) {
+  const logout = useAuthStore((s) => s.logout)
+  const clearedRef = useRef(false)
+  const redirectedRef = useRef(false)
+
+  useEffect(() => {
+    if (!clearedRef.current) {
+      clearedRef.current = true
+      logout()
+    }
+  }, [logout])
+
+  useEffect(() => {
+    if (ipCheck?.isAllowed && !redirectedRef.current) {
+      redirectedRef.current = true
+      setTimeout(() => window.location.reload(), 1000)
+    }
+  }, [ipCheck?.isAllowed])
 
   return (
     <div
@@ -43,7 +57,7 @@ export function AccessDeniedPage() {
           Please contact your administrator.
         </p>
 
-        {data?.currentIp && (
+        {ipCheck?.currentIp && (
           <div
             style={{
               background: '#f5f5f5',
@@ -55,32 +69,32 @@ export function AccessDeniedPage() {
               fontFamily: 'monospace',
             }}
           >
-            Your IP: {data.currentIp}
+            Your IP: {ipCheck.currentIp}
           </div>
         )}
 
-        <button
-          onClick={handleRetry}
-          disabled={checking || isFetching}
-          style={{
-            padding: '10px 24px',
-            borderRadius: '4px',
-            border: 'none',
-            background: '#4a90d9',
-            color: '#fff',
-            fontSize: '14px',
-            cursor: checking || isFetching ? 'not-allowed' : 'pointer',
-            fontWeight: 600,
-            opacity: checking || isFetching ? 0.7 : 1,
-          }}
-        >
-          {checking || isFetching ? 'Checking...' : 'Retry Connection'}
-        </button>
-
-        {data?.isAllowed && (
-          <p style={{ margin: '16px 0 0', fontSize: '13px', color: '#4caf50', fontWeight: 600 }}>
+        {ipCheck?.isAllowed && (
+          <p style={{ margin: '0 0 16px', fontSize: '13px', color: '#4caf50', fontWeight: 600 }}>
             Your IP is now allowed. Redirecting...
           </p>
+        )}
+
+        {!ipCheck?.isAllowed && (
+          <button
+            onClick={() => window.location.reload()}
+            style={{
+              padding: '10px 24px',
+              borderRadius: '4px',
+              border: 'none',
+              background: '#4a90d9',
+              color: '#fff',
+              fontSize: '14px',
+              cursor: 'pointer',
+              fontWeight: 600,
+            }}
+          >
+            Retry Connection
+          </button>
         )}
       </div>
     </div>

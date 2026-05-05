@@ -1,4 +1,4 @@
-# BVB Freight — Live Datatable
+# BVB Freight
 
 ## Что это за проект
 
@@ -76,8 +76,8 @@ C:\job\new-bvb-system
 │   │   ├── store/
 │   │   │   ├── authStore.ts    # Zustand: token, user, login/logout, persist в localStorage
 │   │   │   └── wsStore.ts      # Zustand: isConnected, onlineUsers
-│   │   ├── features/LiveDatatable/
-│   │   │   ├── LiveDatatable.tsx # Главный компонент: TanStack Table, фильтры, пагинация
+│   │   ├── features/LoadsBoard/
+│   │   │   ├── LoadsBoard.tsx # Главный компонент: TanStack Table, фильтры, пагинация
 │   │   │   ├── LoadCell.tsx     # Inline editing (double-click, debounce)
 │   │   │   ├── OnlineUsersBar.tsx # Статус WS + список онлайн юзеров
 │   │   │   └── columns.tsx      # 9 колонок таблицы

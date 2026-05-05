@@ -7,12 +7,17 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-type Handler struct {
-	repo *Repository
+type Broadcaster interface {
+	BroadcastBytes(data []byte)
 }
 
-func NewHandler(repo *Repository) *Handler {
-	return &Handler{repo: repo}
+type Handler struct {
+	repo *Repository
+	hub  Broadcaster
+}
+
+func NewHandler(repo *Repository, hub Broadcaster) *Handler {
+	return &Handler{repo: repo, hub: hub}
 }
 
 func (h *Handler) RegisterRoutes(api fiber.Router, authMW fiber.Handler, rootMW fiber.Handler) {
@@ -57,6 +62,10 @@ func (h *Handler) Store(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	if h.hub != nil {
+		h.hub.BroadcastBytes([]byte(`{"type":"ip.restriction-changed","payload":{}}`))
+	}
+
 	return c.Status(201).JSON(fiber.Map{"allowed_ip": ip})
 }
 
@@ -68,6 +77,10 @@ func (h *Handler) Destroy(c *fiber.Ctx) error {
 
 	if err := h.repo.Delete(c.Context(), id); err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if h.hub != nil {
+		h.hub.BroadcastBytes([]byte(`{"type":"ip.restriction-changed","payload":{}}`))
 	}
 
 	return c.JSON(fiber.Map{"message": "deleted"})
@@ -87,6 +100,10 @@ func (h *Handler) DestroyByBody(c *fiber.Ctx) error {
 
 	if err := h.repo.Delete(c.Context(), req.ID); err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if h.hub != nil {
+		h.hub.BroadcastBytes([]byte(`{"type":"ip.restriction-changed","payload":{}}`))
 	}
 
 	return c.JSON(fiber.Map{"message": "deleted"})

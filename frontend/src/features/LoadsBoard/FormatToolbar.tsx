@@ -65,6 +65,8 @@ export function FormatToolbar({ orderedLoadIds: _orderedLoadIds, loads }: Format
   const activateFormatPainter = useSelectionStore((s) => s.activateFormatPainter)
   const deactivateFormatPainter = useSelectionStore((s) => s.deactivateFormatPainter)
 
+  const isPendingRef = useRef(false)
+
   const [colorPickerType, setColorPickerType] = useState<'text' | 'fill' | null>(null)
   const [fontSizeInput, setFontSizeInput] = useState('')
   const [showFontInput, setShowFontInput] = useState(false)
@@ -84,7 +86,7 @@ export function FormatToolbar({ orderedLoadIds: _orderedLoadIds, loads }: Format
   }, [selectedCells, loads, hasSelection])
 
   const applyFormat = useCallback((patch: Partial<CellFormat>) => {
-    if (!hasSelection) return
+    if (!hasSelection || isPendingRef.current) return
     const cells: BulkFormatCell[] = [...selectedCells].map((key) => {
       const [loadId, col] = key.split(':')
       const load = loads.find((l) => l.id === +loadId)
@@ -102,6 +104,7 @@ export function FormatToolbar({ orderedLoadIds: _orderedLoadIds, loads }: Format
       }) ?? [],
     )
 
+    isPendingRef.current = true
     fetch('/api/loads/bulk-format', {
       method: 'POST',
       headers: {
@@ -109,7 +112,8 @@ export function FormatToolbar({ orderedLoadIds: _orderedLoadIds, loads }: Format
         'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
       },
       body: JSON.stringify({ cells }),
-    }).catch(() => queryClient.invalidateQueries({ queryKey: ['loads'] }))
+    }).catch(() => queryClient.invalidateQueries({ queryKey: ['loads'] })
+    ).finally(() => { isPendingRef.current = false })
   }, [selectedCells, loads, hasSelection, queryClient])
 
   const toggleBold = useCallback(() => applyFormat({ bold: !resolvedFormat.bold }), [applyFormat, resolvedFormat.bold])
@@ -277,16 +281,23 @@ export function FormatToolbar({ orderedLoadIds: _orderedLoadIds, loads }: Format
         style={{
           ...btnBase,
           display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px',
+          padding: '4px 5px',
         }}
         onClick={() => setColorPickerType('fill')}
         title="Fill color"
       >
-        <span style={{ fontSize: '11px' }}>◉</span>
-        <span style={{ width: 14, height: 3, borderRadius: 1, backgroundColor: selectedBgColor ?? '#fff', border: '1px solid #dadce0' }} />
+        {selectedBgColor ? (
+          <span style={{ width: 16, height: 16, borderRadius: 2, backgroundColor: selectedBgColor, border: '1px solid #dadce0', display: 'block' }} />
+        ) : (
+          <svg width="16" height="16" viewBox="0 0 16 16">
+            <rect x="0.5" y="0.5" width="15" height="15" fill="white" stroke="#dadce0" rx="1" />
+            <line x1="2" y1="14" x2="14" y2="2" stroke="#dc3912" strokeWidth="1.5" />
+          </svg>
+        )}
       </button>
 
       {colorPickerType && (
-        <ColorPicker
+        <ColorPicker key={colorPickerType}
           value={colorPickerType === 'text' ? selectedFgColor : selectedBgColor}
           onChange={handleColorChange}
           onClose={() => setColorPickerType(null)}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   flexRender,
   getCoreRowModel,
@@ -9,10 +9,12 @@ import {
 import type { SortingState } from '@tanstack/react-table'
 import { useQueryClient } from '@tanstack/react-query'
 import { useLoads, useUpdateLoad } from '../../hooks/useLoads'
+import { useTableLayout } from '../../hooks/useTableLayout'
 import { columns, columnToColKey } from './columns'
 import { LoadCell } from './LoadCell'
 import { OnlineUsersBar } from './OnlineUsersBar'
 import { FormatToolbar } from './FormatToolbar'
+import { RowHeaderColumn } from './RowHeaderColumn'
 import { useSelectionStore } from '../../store/selectionStore'
 import type { BulkFormatCell, CellFormat, Load } from '../../types/Load'
 
@@ -56,7 +58,7 @@ function getPageNumbers(current: number, total: number): (number | 'ellipsis')[]
   return result
 }
 
-export function LiveDatatable() {
+export function LoadsBoard() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [searchInput, setSearchInput] = useState('')
@@ -79,6 +81,19 @@ export function LiveDatatable() {
 
   const { data: loads, isLoading, isError, error } = useLoads(filters)
   const updateMutation = useUpdateLoad()
+
+  const {
+    getColumnWidth,
+    getRowHeight,
+    isColumnLocked,
+    getColumnLockInfo,
+    acquireLock: acquireLayoutLock,
+    releaseLock: releaseLayoutLock,
+    debouncedUpdateColumnWidth,
+  } = useTableLayout()
+
+  const columnResizeDragging = useRef<{ colId: string; startX: number; startWidth: number } | null>(null)
+  const columnLockAcquired = useRef<Record<string, boolean>>({})
 
   const queryClient = useQueryClient()
   const setOrderedLoadIds = useSelectionStore((s) => s.setOrderedLoadIds)
@@ -181,6 +196,42 @@ export function LiveDatatable() {
     updateMutation.mutate({ id, data: { [field]: value } })
   }
 
+  const handleColumnResizeMouseDown = (e: React.MouseEvent, colId: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const currentWidth = getColumnWidth(colId, 150)
+    acquireLayoutLock('column', colId).then((success) => {
+      if (!success) return
+      columnLockAcquired.current[colId] = true
+      columnResizeDragging.current = { colId, startX: e.clientX, startWidth: currentWidth }
+
+      const onMove = (ev: MouseEvent) => {
+        if (!columnResizeDragging.current) return
+        const diff = ev.clientX - columnResizeDragging.current.startX
+        const newWidth = Math.max(50, columnResizeDragging.current.startWidth + diff)
+        debouncedUpdateColumnWidth(columnResizeDragging.current.colId, newWidth)
+      }
+
+      const onUp = () => {
+        if (columnResizeDragging.current) {
+          const id = columnResizeDragging.current.colId
+          releaseLayoutLock('column', id)
+          columnLockAcquired.current[id] = false
+        }
+        columnResizeDragging.current = null
+        document.removeEventListener('mousemove', onMove)
+        document.removeEventListener('mouseup', onUp)
+        document.body.style.cursor = ''
+        document.body.style.userSelect = ''
+      }
+
+      document.addEventListener('mousemove', onMove)
+      document.addEventListener('mouseup', onUp)
+      document.body.style.cursor = 'col-resize'
+      document.body.style.userSelect = 'none'
+    })
+  }
+
   const pageCount = table.getPageCount()
   const showPagination = pageSize > 0 && loads && loads.length > 0
 
@@ -246,28 +297,59 @@ export function LiveDatatable() {
         <FormatToolbar orderedLoadIds={loads?.map((l) => l.id) ?? []} loads={loads ?? []} />
       </div>
 
-      <div style={{ flex: 1, overflow: 'auto', border: '1px solid #ddd', borderRadius: '4px' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+      <div style={{ flex: 1, overflow: 'auto', border: '1px solid #ddd', borderRadius: '4px', display: 'flex' }}>
+        <RowHeaderColumn
+          rowCount={table.getRowModel().rows.length}
+          startIndex={pageSize > 0 ? pageIndex * actualPageSize : 0}
+        />
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', tableLayout: 'fixed' }}>
           <thead>
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id} style={{ background: '#f5f5f5' }}>
-                {hg.headers.map((header) => (
-                  <th
-                    key={header.id}
-                    onClick={header.column.getToggleSortingHandler()}
-                    style={{
-                      padding: '8px 12px',
-                      textAlign: 'left',
-                      cursor: 'pointer',
-                      borderBottom: '2px solid #ddd',
-                      whiteSpace: 'nowrap',
-                      userSelect: 'none',
-                    }}
-                  >
-                    {flexRender(header.column.columnDef.header, header.getContext())}
-                    {{ asc: ' ▲', desc: ' ▼' }[header.column.getIsSorted() as string] ?? ''}
-                  </th>
-                ))}
+                {hg.headers.map((header) => {
+                  const colId = header.column.id
+                  const colWidth = getColumnWidth(colId, 150)
+                  const locked = isColumnLocked(colId)
+                  const lockInfo = getColumnLockInfo(colId)
+                  return (
+                    <th
+                      key={header.id}
+                      onClick={header.column.getToggleSortingHandler()}
+                      style={{
+                        padding: '8px 4px',
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        borderBottom: '2px solid #ddd',
+                        borderRight: locked ? '3px solid #f57f17' : '1px solid #ddd',
+                        whiteSpace: 'nowrap',
+                        userSelect: 'none',
+                        width: `${colWidth}px`,
+                        minWidth: '50px',
+                        maxWidth: `${colWidth}px`,
+                        position: 'relative',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        background: locked ? 'linear-gradient(to bottom, #fff8e1, #f5f5f5)' : undefined,
+                      }}
+                      title={locked && lockInfo ? `${lockInfo.user_name} editing (expires ${new Date(lockInfo.expires_at).toLocaleTimeString()})` : header.column.columnDef.header as string}
+                    >
+                      {flexRender(header.column.columnDef.header, header.getContext())}
+                      {{ asc: ' ▲', desc: ' ▼' }[header.column.getIsSorted() as string] ?? ''}
+                      <div
+                        onMouseDown={(e) => handleColumnResizeMouseDown(e, colId)}
+                        style={{
+                          position: 'absolute',
+                          top: 0,
+                          right: 0,
+                          width: '5px',
+                          height: '100%',
+                          cursor: 'col-resize',
+                          background: locked ? '#f57f17' : 'transparent',
+                        }}
+                      />
+                    </th>
+                  )
+                })}
               </tr>
             ))}
           </thead>
@@ -291,36 +373,46 @@ export function LiveDatatable() {
                 </td>
               </tr>
             ) : (
-              table.getRowModel().rows.map((row) => (
-                <tr
-                  key={row.id}
-                  style={{
-                    borderBottom: '1px solid #eee',
-                    background: row.original.is_mcc ? '#fffef5' : undefined,
-                  }}
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <td
-                      key={cell.id}
-                      style={{
-                        padding: '2px 4px',
-                        borderRight: '1px solid #eee',
-                        maxWidth: '200px',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      <LoadCell
-                        cell={cell as any}
-                        onUpdate={handleUpdate}
-                        colKey={columnToColKey[cell.column.id]}
-                        onCellSelect={handleCellSelect}
-                      />
-                    </td>
-                  ))}
-                </tr>
-              ))
+              table.getRowModel().rows.map((row, rowIdx) => {
+                const rHeight = getRowHeight(rowIdx, 36)
+                return (
+                  <tr
+                    key={row.id}
+                    style={{
+                      borderBottom: '1px solid #eee',
+                      background: row.original.is_mcc ? '#fffef5' : undefined,
+                      height: `${rHeight}px`,
+                    }}
+                  >
+                    {row.getVisibleCells().map((cell) => {
+                      const colId = cell.column.id
+                      const colWidth = getColumnWidth(colId, 150)
+                      return (
+                        <td
+                          key={cell.id}
+                          style={{
+                            padding: '2px 4px',
+                            borderRight: '1px solid #eee',
+                            width: `${colWidth}px`,
+                            minWidth: '50px',
+                            maxWidth: `${colWidth}px`,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          <LoadCell
+                            cell={cell as any}
+                            onUpdate={handleUpdate}
+                            colKey={columnToColKey[cell.column.id]}
+                            onCellSelect={handleCellSelect}
+                          />
+                        </td>
+                      )
+                    })}
+                  </tr>
+                )
+              })
             )}
           </tbody>
         </table>

@@ -10,8 +10,9 @@ import (
 )
 
 type LoadCreatedCallback func(ctx context.Context, id int64)
+type AllowedIPsChangedCallback func(ctx context.Context)
 
-func ListenLoadsCreated(ctx context.Context, dsn string, cb LoadCreatedCallback) {
+func listenLoop(ctx context.Context, dsn, channel string, onNotify func(payload string), onReconnect func()) {
 	backoff := time.Second
 
 	for {
@@ -21,7 +22,7 @@ func ListenLoadsCreated(ctx context.Context, dsn string, cb LoadCreatedCallback)
 
 		conn, err := pgx.Connect(ctx, dsn)
 		if err != nil {
-			log.Printf("DBListener: connect failed: %v, retry in %v", err, backoff)
+			log.Printf("DBListener(%s): connect failed: %v, retry in %v", channel, err, backoff)
 			select {
 			case <-ctx.Done():
 				return
@@ -35,13 +36,17 @@ func ListenLoadsCreated(ctx context.Context, dsn string, cb LoadCreatedCallback)
 
 		backoff = time.Second
 
-		if _, err := conn.Exec(ctx, "LISTEN loads_created"); err != nil {
-			log.Printf("DBListener: LISTEN failed: %v", err)
+		if _, err := conn.Exec(ctx, "LISTEN "+channel); err != nil {
+			log.Printf("DBListener(%s): LISTEN failed: %v", channel, err)
 			conn.Close(ctx)
 			continue
 		}
 
-		log.Println("DBListener: listening on loads_created")
+		log.Printf("DBListener: listening on %s", channel)
+
+		if onReconnect != nil {
+			onReconnect()
+		}
 
 		for {
 			notification, err := conn.WaitForNotification(ctx)
@@ -50,19 +55,30 @@ func ListenLoadsCreated(ctx context.Context, dsn string, cb LoadCreatedCallback)
 					conn.Close(ctx)
 					return
 				}
-				log.Printf("DBListener: notification error: %v, reconnecting", err)
+				log.Printf("DBListener(%s): notification error: %v, reconnecting", channel, err)
 				break
 			}
 
-			id, err := strconv.ParseInt(notification.Payload, 10, 64)
-			if err != nil {
-				log.Printf("DBListener: invalid payload %q: %v", notification.Payload, err)
-				continue
-			}
-
-			cb(ctx, id)
+			onNotify(notification.Payload)
 		}
 
 		conn.Close(ctx)
 	}
+}
+
+func ListenLoadsCreated(ctx context.Context, dsn string, cb LoadCreatedCallback) {
+	listenLoop(ctx, dsn, "loads_created", func(payload string) {
+		id, err := strconv.ParseInt(payload, 10, 64)
+		if err != nil {
+			log.Printf("DBListener: invalid payload %q: %v", payload, err)
+			return
+		}
+		cb(ctx, id)
+	}, nil)
+}
+
+func ListenAllowedIPsChanged(ctx context.Context, dsn string, cb AllowedIPsChangedCallback) {
+	listenLoop(ctx, dsn, "allowed_ips_changed", func(_ string) {
+		cb(ctx)
+	}, nil)
 }

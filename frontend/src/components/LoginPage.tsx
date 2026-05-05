@@ -38,7 +38,7 @@ export function LoginPage() {
       >
         <h1 style={{ margin: '0 0 8px', fontSize: '24px' }}>BVB Freight</h1>
         <p style={{ margin: '0 0 24px', color: '#666', fontSize: '14px' }}>
-          Live Datatable
+          Dashboard
         </p>
 
         {error && (

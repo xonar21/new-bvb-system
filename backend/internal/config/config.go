@@ -46,7 +46,7 @@ func Load() *Config {
 		SyncInterval:         getEnvDuration("SYNC_INTERVAL_MINUTES", 10),
 
 		JWTSecret:   getEnv("JWT_SECRET", "super_secret_key_change_in_prod"),
-		JWTTTL:      getEnvDuration("JWT_TTL_HOURS", 24),
+		JWTTTL:      getEnvDuration("JWT_TTL_HOURS", 168),
 		CORSOrigins: getEnvSlice("CORS_ORIGINS", "http://localhost:5173"),
 	}
 }

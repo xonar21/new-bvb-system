@@ -20,11 +20,11 @@ export function useIpCheck() {
       ])
 
       const allowedIps = allowedRes.allowed_ips.map((a) => a.ip)
-      const isAllowed = allowedIps.length === 0 || allowedIps.includes(currentIp)
+      const isAllowed = allowedIps.length > 0 && allowedIps.includes(currentIp)
 
       return { currentIp, isAllowed }
     },
     retry: 1,
-    staleTime: 60_000,
+    refetchInterval: 3000,
   })
 }

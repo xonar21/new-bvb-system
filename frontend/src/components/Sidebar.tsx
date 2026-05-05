@@ -54,7 +54,7 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
         }}
       >
         <div style={{ fontWeight: 700, fontSize: '16px' }}>BVB Freight</div>
-        <div style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>Live Datatable</div>
+        <div style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>Dashboard</div>
       </div>
 
       <nav style={{ flex: 1, padding: '8px 0' }}>

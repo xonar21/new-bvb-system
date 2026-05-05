@@ -73,6 +73,10 @@ func (h *Hub) Run() {
 	}
 }
 
+func (h *Hub) BroadcastBytes(data []byte) {
+	h.broadcast <- data
+}
+
 func (h *Hub) Broadcast(msg Message) {
 	data, err := msg.Bytes()
 	if err != nil {

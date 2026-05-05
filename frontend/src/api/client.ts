@@ -38,6 +38,11 @@ async function request<T>(
       window.location.reload()
     }
     const body = await res.json().catch(() => ({ error: res.statusText }))
+    if (res.status === 403 && body.error === 'ip_not_allowed') {
+      localStorage.removeItem('auth_token')
+      localStorage.removeItem('auth_user')
+      window.location.reload()
+    }
     throw new ApiError(body.error || res.statusText, res.status)
   }
 

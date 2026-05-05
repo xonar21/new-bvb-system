@@ -95,7 +95,7 @@ export interface LoginResponse {
 }
 
 export interface WSMessage {
-  type: 'load.created' | 'load.updated' | 'load.deleted' | 'load.order-updated' | 'presence' | 'cell.focus'
+  type: 'load.created' | 'load.updated' | 'load.deleted' | 'load.order-updated' | 'presence' | 'cell.focus' | 'ip.restriction-changed' | 'layout.column-width-changed' | 'layout.row-height-changed' | 'layout.lock-acquired' | 'layout.lock-released' | 'layout.reset'
   payload: unknown
 }
 
@@ -116,4 +116,77 @@ export interface AllowedIp {
 
 export interface AllowedIpsResponse {
   allowed_ips: AllowedIp[]
+}
+
+// --- Table Layout types ---
+
+export interface LockInfo {
+  user_id: number
+  user_name: string
+  expires_at: string
+}
+
+export interface ActiveLocks {
+  columns: Record<string, LockInfo>
+  rows: Record<string, LockInfo>
+}
+
+export interface TableLayoutResponse {
+  column_widths: Record<string, number>
+  row_heights: Record<string, number>
+  active_locks: ActiveLocks
+}
+
+export interface ColumnWidthRequest {
+  width: number
+  request_id?: string
+}
+
+export interface RowHeightRequest {
+  height: number
+  request_id?: string
+}
+
+export interface LockAcquireRequest {
+  target_type: 'column' | 'row'
+  target_name: string
+}
+
+export interface LockAcquireResponse {
+  success: boolean
+  locked_by?: LockInfo
+}
+
+export interface LockReleaseRequest {
+  target_type: 'column' | 'row'
+  target_name: string
+}
+
+export interface LayoutColumnWidthChanged {
+  column_name: string
+  width: number
+  changed_by: number
+  user_name: string
+}
+
+export interface LayoutRowHeightChanged {
+  row_index: string
+  height: number
+  changed_by: number
+  user_name: string
+}
+
+export interface LayoutLockAcquired {
+  target_type: string
+  target_name: string
+  user_id: number
+  user_name: string
+  expires_at: string | null
+}
+
+export interface LayoutLockReleased {
+  target_type: string
+  target_name: string
+  user_id?: number
+  user_name?: string
 }
