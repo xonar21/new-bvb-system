@@ -14,7 +14,7 @@ import { columns, columnToColKey } from './columns'
 import { LoadCell } from './LoadCell'
 import { OnlineUsersBar } from './OnlineUsersBar'
 import { FormatToolbar } from './FormatToolbar'
-import { RowHeaderColumn } from './RowHeaderColumn'
+import { RowResizeHandle } from './RowHeaderColumn'
 import { useSelectionStore } from '../../store/selectionStore'
 import type { BulkFormatCell, CellFormat, Load } from '../../types/Load'
 
@@ -85,7 +85,9 @@ export function LoadsBoard() {
   const {
     getColumnWidth,
     getRowHeight,
+    rowHeights,
     isColumnLocked,
+    isRowLocked,
     getColumnLockInfo,
     acquireLock: acquireLayoutLock,
     releaseLock: releaseLayoutLock,
@@ -297,15 +299,18 @@ export function LoadsBoard() {
         <FormatToolbar orderedLoadIds={loads?.map((l) => l.id) ?? []} loads={loads ?? []} />
       </div>
 
-      <div style={{ flex: 1, overflow: 'auto', border: '1px solid #ddd', borderRadius: '4px', display: 'flex' }}>
-        <RowHeaderColumn
-          rowCount={table.getRowModel().rows.length}
-          startIndex={pageSize > 0 ? pageIndex * actualPageSize : 0}
-        />
+      <div style={{ flex: 1, overflow: 'auto', border: '1px solid #ddd', borderRadius: '4px' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', tableLayout: 'fixed' }}>
           <thead>
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id} style={{ background: '#f5f5f5' }}>
+                <th style={{
+                  width: '50px', minWidth: '50px', maxWidth: '50px',
+                  padding: '8px 2px', textAlign: 'center',
+                  borderBottom: '2px solid #ddd', borderRight: '1px solid #ddd',
+                  fontFamily: 'monospace', fontSize: '11px', fontWeight: 600,
+                  color: '#666', userSelect: 'none',
+                }}>#</th>
                 {hg.headers.map((header) => {
                   const colId = header.column.id
                   const colWidth = getColumnWidth(colId, 150)
@@ -356,34 +361,53 @@ export function LoadsBoard() {
           <tbody>
             {isLoading ? (
               <tr>
-                <td colSpan={columns.length} style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
+                <td colSpan={columns.length + 1} style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
                   Loading...
                 </td>
               </tr>
             ) : isError ? (
               <tr>
-                <td colSpan={columns.length} style={{ textAlign: 'center', padding: '40px', color: '#c62828', fontSize: '14px' }}>
+                <td colSpan={columns.length + 1} style={{ textAlign: 'center', padding: '40px', color: '#c62828', fontSize: '14px' }}>
                   Failed to load: {error instanceof Error ? error.message : 'Unknown error'}
                 </td>
               </tr>
             ) : table.getRowModel().rows.length === 0 ? (
               <tr>
-                <td colSpan={columns.length} style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
+                <td colSpan={columns.length + 1} style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
                   No loads found
                 </td>
               </tr>
             ) : (
               table.getRowModel().rows.map((row, rowIdx) => {
                 const rHeight = getRowHeight(rowIdx, 36)
+                const hasExplicitHeight = rowIdx in rowHeights
+                const actualRowNum = (pageSize > 0 ? pageIndex * actualPageSize : 0) + rowIdx + 1
+                const rowLocked = isRowLocked(rowIdx)
                 return (
                   <tr
                     key={row.id}
                     style={{
                       borderBottom: '1px solid #eee',
                       background: row.original.is_mcc ? '#fffef5' : undefined,
-                      height: `${rHeight}px`,
+                      ...(hasExplicitHeight ? { height: `${rHeight}px` } : {}),
                     }}
                   >
+                    <td style={{
+                      width: '50px', minWidth: '50px', maxWidth: '50px',
+                      padding: '0 2px', textAlign: 'center',
+                      borderRight: '1px solid #ddd', borderBottom: '1px solid #eee',
+                      fontFamily: 'monospace', fontSize: '11px',
+                      color: rowLocked ? '#f57f17' : '#888',
+                      background: rowLocked ? '#fff8e1' : '#f5f5f5',
+                      position: 'relative', userSelect: 'none',
+                      height: `${rHeight}px`, lineHeight: `${rHeight}px`,
+                      overflow: 'hidden',
+                    }}
+                      title={rowLocked ? 'Row locked by another user' : `Row ${actualRowNum}`}
+                    >
+                      {actualRowNum}
+                      <RowResizeHandle rowIdx={rowIdx} />
+                    </td>
                     {row.getVisibleCells().map((cell) => {
                       const colId = cell.column.id
                       const colWidth = getColumnWidth(colId, 150)
@@ -391,7 +415,8 @@ export function LoadsBoard() {
                         <td
                           key={cell.id}
                           style={{
-                            padding: '2px 4px',
+                            padding: 0,
+                            ...(hasExplicitHeight ? { height: `${rHeight}px` } : {}),
                             borderRight: '1px solid #eee',
                             width: `${colWidth}px`,
                             minWidth: '50px',
@@ -406,6 +431,7 @@ export function LoadsBoard() {
                             onUpdate={handleUpdate}
                             colKey={columnToColKey[cell.column.id]}
                             onCellSelect={handleCellSelect}
+                            fillHeight={hasExplicitHeight}
                           />
                         </td>
                       )

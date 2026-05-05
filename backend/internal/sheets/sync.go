@@ -382,9 +382,10 @@ func (s *SheetsSync) batchInsertNew(ctx context.Context, rawLoads []RawLoad) err
 	batch := &pgx.Batch{}
 
 	for _, load := range rawLoads {
-		var formatsJSON []byte
+		var formatsParam interface{}
 		if len(load.Formats) > 0 {
-			formatsJSON, _ = json.Marshal(load.Formats)
+			formatsJSON, _ := json.Marshal(load.Formats)
+			formatsParam = string(formatsJSON)
 		}
 
 		batch.Queue(`
@@ -399,7 +400,7 @@ func (s *SheetsSync) batchInsertNew(ctx context.Context, rawLoads []RawLoad) err
 			load.PickUpDate, load.Commodity, load.PickupLocation,
 			load.DeliveryLocation, load.AssignedUser, load.GateCode,
 			load.Rate, load.RateMin, load.RateMax, load.IsBold,
-			load.IsMCC, load.Notes, string(formatsJSON))
+			load.IsMCC, load.Notes, formatsParam)
 	}
 
 	results := s.db.SendBatch(ctx, batch)

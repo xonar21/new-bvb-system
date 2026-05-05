@@ -131,10 +131,6 @@ func main() {
 			return c.Status(401).JSON(fiber.Map{"error": "invalid or expired token"})
 		}
 
-		if !allowedIPsMiddleware.IsAllowed(c) {
-			return c.Status(403).JSON(fiber.Map{"error": "ip_not_allowed"})
-		}
-
 		handler := websocket.New(func(conn *websocket.Conn) {
 			ws.HandleWS(conn, wsHub, claims.UserID, claims.Email)
 		})

@@ -21,6 +21,11 @@ func (h *Handler) TriggerSync(c *fiber.Ctx) error {
 	}
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("Manual sync panic: %v", r)
+			}
+		}()
 		if err := h.sync.Sync(context.Background()); err != nil {
 			log.Printf("Manual sync error: %v", err)
 		}

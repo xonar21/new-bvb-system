@@ -23,6 +23,7 @@ interface LoadCellProps {
   onUpdate?: (id: number, key: string, value: string | number | null) => void
   colKey?: string
   onCellSelect?: (loadId: number, colKey: string) => void
+  fillHeight?: boolean
 }
 
 function blendWithBlue(bg: string): string {
@@ -65,7 +66,7 @@ function getCellStyle(load: Load, colKey?: string): React.CSSProperties {
   }
 }
 
-export function LoadCell({ cell, onUpdate, colKey, onCellSelect }: LoadCellProps) {
+export function LoadCell({ cell, onUpdate, colKey, onCellSelect, fillHeight }: LoadCellProps) {
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState(String(cell.getValue() ?? ''))
   const inputRef = useRef<HTMLInputElement>(null)
@@ -260,7 +261,7 @@ export function LoadCell({ cell, onUpdate, colKey, onCellSelect }: LoadCellProps
             border: '1px solid #4a90d9',
             outline: isSelected ? '2px solid #1a73e8' : 'none',
             outlineOffset: '-1px',
-            padding: '2px 4px',
+            padding: '1px',
             fontSize: cellStyle.fontSize ?? 'inherit',
             fontWeight: cellStyle.fontWeight ?? (isBold ? 700 : 400),
             fontStyle: cellStyle.fontStyle ?? undefined,
@@ -293,9 +294,9 @@ export function LoadCell({ cell, onUpdate, colKey, onCellSelect }: LoadCellProps
         fontSize: cellStyle.fontSize ?? undefined,
         outline: isSelected ? `2px solid ${formatPainterActive ? '#fbbc04' : '#1a73e8'}` : undefined,
         outlineOffset: '-1px',
-        display: 'block',
-        minHeight: '20px',
-        padding: '2px 4px',
+        ...(fillHeight ? { height: '100%', boxSizing: 'border-box' } : {}),
+        overflow: 'hidden',
+        padding: '1px',
         borderLeft: isFocused ? `3px solid ${focusColor}` : '3px solid transparent',
         opacity: isEditingByOther ? 0.6 : 1,
         userSelect: 'none',

@@ -44,12 +44,14 @@ func (m *IPMiddleware) Refresh() {
 }
 
 func getClientIP(c *fiber.Ctx) string {
-	ip := c.IP()
 	if forwarded := c.Get("X-Forwarded-For"); forwarded != "" {
 		parts := strings.Split(forwarded, ",")
-		ip = strings.TrimSpace(parts[0])
+		return strings.TrimSpace(parts[0])
 	}
-	return ip
+	if realIP := c.Get("X-Real-IP"); realIP != "" {
+		return realIP
+	}
+	return c.IP()
 }
 
 func (m *IPMiddleware) IsAllowed(c *fiber.Ctx) bool {
