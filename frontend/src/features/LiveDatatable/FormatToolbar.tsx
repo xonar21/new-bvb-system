@@ -3,17 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import type { BulkFormatCell, CellFormat, Load } from '../../types/Load'
 import { useSelectionStore } from '../../store/selectionStore'
 import { ColorPicker } from './ColorPicker'
-
-const btnStyles = `
-  .format-btn {
-    outline: none !important;
-    box-shadow: none !important;
-  }
-  .format-btn:focus, .format-btn:focus-visible, .format-btn:active {
-    outline: none !important;
-    box-shadow: none !important;
-  }
-`
+import './FormatToolbar.css'
 
 const btnBase: React.CSSProperties = {
   width: 28,
@@ -195,9 +185,7 @@ export function FormatToolbar({ orderedLoadIds: _orderedLoadIds, loads }: Format
   }
 
   return (
-    <>
-      <style>{btnStyles}</style>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '2px', padding: '4px 8px', background: '#f8f9fa', borderRadius: '4px', border: '1px solid #e0e0e0', flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: '2px', padding: '4px 8px', background: '#f8f9fa', borderRadius: '4px', border: '1px solid #e0e0e0', flexWrap: 'wrap' }}>
       {/* Font size */}
       <button className="format-btn" style={btnBase} onClick={() => handleFontSizeChange(-1)} title="Decrease font size">−</button>
       {showFontInput ? (
@@ -211,6 +199,7 @@ export function FormatToolbar({ orderedLoadIds: _orderedLoadIds, loads }: Format
         />
       ) : (
         <button
+          className="format-btn"
           style={{ ...btnBase, width: 36, fontSize: '12px', fontFamily: 'monospace' }}
           onClick={() => { setFontSizeInput(String(resolvedFormat.fontSize ?? 10)); setShowFontInput(true) }}
           title="Font size"
@@ -332,6 +321,5 @@ export function FormatToolbar({ orderedLoadIds: _orderedLoadIds, loads }: Format
         </svg>
       </button>
     </div>
-    </>
   )
 }

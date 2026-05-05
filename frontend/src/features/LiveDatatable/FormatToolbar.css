@@ -1,0 +1,7 @@
+button.format-btn:focus,
+button.format-btn:focus-visible,
+button.format-btn:active,
+button.format-btn:hover {
+  outline: none !important;
+  box-shadow: none !important;
+}
