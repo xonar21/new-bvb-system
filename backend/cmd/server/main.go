@@ -31,6 +31,9 @@ func main() {
 
 	db.Migrate(pgPool)
 
+	wsHub := ws.NewHub()
+	go wsHub.Run()
+
 	var sheetSync *sheets.SheetsSync
 
 	if cfg.GoogleServiceAccount != "" && cfg.GoogleSheetID != "" {
@@ -39,6 +42,20 @@ func main() {
 			log.Printf("Google Sheets client init failed (sync disabled): %v", err)
 		} else {
 			sheetSync = sheets.NewSync(sheetsClient, pgPool, cfg.GoogleSheetID)
+			sheetSync.SetCallbacks(
+				func(inserted, updated int) {
+					wsHub.Broadcast(ws.Message{
+						Type:    "loads.synced",
+						Payload: map[string]interface{}{"inserted": inserted, "updated": updated},
+					})
+				},
+				func(err error) {
+					wsHub.Broadcast(ws.Message{
+						Type:    "sync.error",
+						Payload: map[string]interface{}{"error": err.Error()},
+					})
+				},
+			)
 
 			go func() {
 				ticker := time.NewTicker(cfg.SyncInterval)
@@ -61,9 +78,6 @@ func main() {
 		log.Println("Google Sheets sync disabled (no credentials or sheet ID)")
 	}
 
-	wsHub := ws.NewHub()
-	go wsHub.Run()
-
 	app := fiber.New(fiber.Config{
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
@@ -79,19 +93,6 @@ func main() {
 	authMW := auth.NewMiddleware(cfg.JWTSecret)
 
 	loadsRepo := loads.NewRepository(pgPool)
-
-	go db.ListenLoadsCreated(context.Background(), cfg.PostgresDSN, func(ctx context.Context, id int64) {
-		load, err := loadsRepo.Get(ctx, id)
-		if err != nil || load == nil {
-			log.Printf("DBListener callback: get load %d failed: %v", id, err)
-			return
-		}
-		wsHub.Broadcast(ws.Message{
-			Type:    "load.created",
-			Payload: load,
-		})
-	})
-
 	loadsHandler := loads.NewHandler(loadsRepo, wsHub)
 
 	api := app.Group("/api")

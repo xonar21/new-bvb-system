@@ -18,21 +18,23 @@ import (
 )
 
 const (
-	greenRowRed   = 0.576
-	greenRowGreen = 0.769
-	greenRowBlue  = 0.490
+	greenRowRed    = 0.576
+	greenRowGreen  = 0.769
+	greenRowBlue   = 0.490
 	colorTolerance = 0.05
 
-	sheetRange      = "A2:I1000"
-	batchSize       = 100
-	maxRetries      = 3
-	retryDelay      = 5 * time.Second
+	sheetRange = "A2:I1000"
+	batchSize  = 100
+	maxRetries = 3
+	retryDelay = 5 * time.Second
 )
 
 type SheetsSync struct {
-	client  *Client
-	db      *pgxpool.Pool
-	sheetID string
+	client     *Client
+	db         *pgxpool.Pool
+	sheetID    string
+	onComplete func(inserted, updated int)
+	onError    func(err error)
 }
 
 func NewSync(client *Client, db *pgxpool.Pool, sheetID string) *SheetsSync {
@@ -43,9 +45,25 @@ func NewSync(client *Client, db *pgxpool.Pool, sheetID string) *SheetsSync {
 	}
 }
 
+func (s *SheetsSync) SetCallbacks(onComplete func(int, int), onError func(error)) {
+	s.onComplete = onComplete
+	s.onError = onError
+}
+
 func (s *SheetsSync) Sync(ctx context.Context) error {
 	start := time.Now()
 	log.Println("Starting Google Sheets sync...")
+
+	// 0. Verify loads table exists
+	var tableExists bool
+	if err := s.db.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM information_schema.tables
+		 WHERE table_schema='public' AND table_name='loads')`).Scan(&tableExists); err != nil {
+		return fmt.Errorf("table check failed: %w", err)
+	}
+	if !tableExists {
+		return fmt.Errorf("loads table does not exist, run migrations first")
+	}
 
 	// 1. Find "AB LOADS" sheet
 	spreadsheet, err := s.client.GetSpreadsheet(ctx, s.sheetID)
@@ -74,7 +92,7 @@ func (s *SheetsSync) Sync(ctx context.Context) error {
 	sheetTitle := targetSheet.Properties.Title
 	log.Printf("Found sheet '%s' with %d rows", sheetTitle, totalRows)
 
-	// 2. Read rows in chunks
+	// 2. Read rows in chunks with retry
 	var allLoads []RawLoad
 	var greenRowGateCodes []string
 	processedCount := 0
@@ -88,17 +106,17 @@ func (s *SheetsSync) Sync(ctx context.Context) error {
 
 		rangeStr := fmt.Sprintf("%s!A%d:I%d", sheetTitle, startRow, endRow)
 
-		loads, greenCodes, err := s.fetchAndParseChunk(ctx, rangeStr)
+		chunkLoads, greenCodes, err := s.fetchWithRetry(ctx, rangeStr)
 		if err != nil {
-			log.Printf("Error fetching rows %d-%d: %v, retrying...", startRow, endRow, err)
-			if err := s.retryFetch(ctx, rangeStr); err != nil {
-				return fmt.Errorf("fetch rows %d-%d after retries: %w", startRow, endRow, err)
+			if s.onError != nil {
+				s.onError(err)
 			}
+			return fmt.Errorf("fetch rows %d-%d: %w", startRow, endRow, err)
 		}
 
-		allLoads = append(allLoads, loads...)
+		allLoads = append(allLoads, chunkLoads...)
 		greenRowGateCodes = append(greenRowGateCodes, greenCodes...)
-		processedCount += len(loads)
+		processedCount += len(chunkLoads)
 		greenCount += len(greenCodes)
 	}
 
@@ -107,16 +125,48 @@ func (s *SheetsSync) Sync(ctx context.Context) error {
 		s.markGreenRows(ctx, greenRowGateCodes)
 	}
 
-	// 4. Transform and insert only new non-green loads
+	// 4. Upsert non-green loads
+	inserted, updated := 0, 0
 	if len(allLoads) > 0 {
-		if err := s.processLoads(ctx, allLoads); err != nil {
-			return fmt.Errorf("process loads: %w", err)
+		var processErr error
+		inserted, updated, processErr = s.processLoads(ctx, allLoads)
+		if processErr != nil {
+			if s.onError != nil {
+				s.onError(processErr)
+			}
+			return fmt.Errorf("process loads: %w", processErr)
 		}
 	}
 
-	log.Printf("Sync completed: %d processed, %d green skipped, took %v",
-		processedCount, greenCount, time.Since(start))
+	log.Printf("Sync completed: %d inserted, %d updated, %d green, %d total processed, took %v",
+		inserted, updated, greenCount, processedCount, time.Since(start))
+
+	if s.onComplete != nil {
+		s.onComplete(inserted, updated)
+	}
 	return nil
+}
+
+func (s *SheetsSync) fetchWithRetry(ctx context.Context, rangeStr string) ([]RawLoad, []string, error) {
+	chunkLoads, greens, err := s.fetchAndParseChunk(ctx, rangeStr)
+	if err == nil {
+		return chunkLoads, greens, nil
+	}
+	log.Printf("Chunk fetch failed for %s: %v, retrying...", rangeStr, err)
+	for i := 0; i < maxRetries; i++ {
+		select {
+		case <-ctx.Done():
+			return nil, nil, ctx.Err()
+		case <-time.After(retryDelay):
+		}
+		chunkLoads, greens, err = s.fetchAndParseChunk(ctx, rangeStr)
+		if err == nil {
+			log.Printf("Retry %d/%d succeeded for %s", i+1, maxRetries, rangeStr)
+			return chunkLoads, greens, nil
+		}
+		log.Printf("Retry %d/%d failed for %s: %v", i+1, maxRetries, rangeStr, err)
+	}
+	return nil, nil, fmt.Errorf("after %d retries: %w", maxRetries, err)
 }
 
 func (s *SheetsSync) fetchAndParseChunk(ctx context.Context, rangeStr string) ([]RawLoad, []string, error) {
@@ -130,7 +180,7 @@ func (s *SheetsSync) fetchAndParseChunk(ctx context.Context, rangeStr string) ([
 	}
 
 	rows := resp.Sheets[0].Data[0].RowData
-	var loads []RawLoad
+	var chunkLoads []RawLoad
 	var greenCodes []string
 
 	for _, row := range rows {
@@ -149,10 +199,10 @@ func (s *SheetsSync) fetchAndParseChunk(ctx context.Context, rangeStr string) ([
 			continue
 		}
 
-		loads = append(loads, *load)
+		chunkLoads = append(chunkLoads, *load)
 	}
 
-	return loads, greenCodes, nil
+	return chunkLoads, greenCodes, nil
 }
 
 func (s *SheetsSync) parseRowData(cells []*sheets.CellData) (*RawLoad, bool) {
@@ -296,22 +346,18 @@ func extractCellFormat(cell *sheets.CellData) *CellFormat {
 		cf.FontSize = &fs
 	}
 
-	// Italic
 	if tf != nil && tf.Italic {
 		cf.Italic = true
 	}
 
-	// Underline
 	if tf != nil && tf.Underline {
 		cf.Underline = true
 	}
 
-	// Strikethrough
 	if tf != nil && tf.Strikethrough {
 		cf.Strikethrough = true
 	}
 
-	// Horizontal alignment
 	if ef.HorizontalAlignment != "" {
 		align := strings.ToLower(ef.HorizontalAlignment)
 		if align == "left" || align == "center" || align == "right" {
@@ -319,7 +365,6 @@ func extractCellFormat(cell *sheets.CellData) *CellFormat {
 		}
 	}
 
-	// Vertical alignment
 	if ef.VerticalAlignment != "" {
 		align := strings.ToLower(ef.VerticalAlignment)
 		if align == "top" || align == "middle" || align == "bottom" {
@@ -342,32 +387,20 @@ func rgbToHex(c *sheets.Color) string {
 	return fmt.Sprintf("#%02x%02x%02x", r, g, b)
 }
 
-func (s *SheetsSync) retryFetch(ctx context.Context, rangeStr string) error {
-	var lastErr error
-	for i := 0; i < maxRetries; i++ {
-		time.Sleep(retryDelay)
-		_, err := s.client.GetSheetData(ctx, s.sheetID, rangeStr, true)
-		if err == nil {
-			return nil
-		}
-		lastErr = err
-	}
-	return lastErr
-}
-
 func (s *SheetsSync) markGreenRows(ctx context.Context, gateCodes []string) {
-	for _, gc := range gateCodes {
-		normalized := loads.NormalizeGateCode(gc)
-		_, err := s.db.Exec(ctx,
-			`UPDATE loads SET status = 'pick up', updated_at = NOW() WHERE gate_code_col6 = $1 AND is_lock = false`,
-			normalized)
-		if err != nil {
-			log.Printf("Failed to mark green row %s: %v", normalized, err)
-		}
+	normalized := make([]string, len(gateCodes))
+	for i, gc := range gateCodes {
+		normalized[i] = loads.NormalizeGateCode(gc)
+	}
+	if _, err := s.db.Exec(ctx,
+		`UPDATE loads SET status='pick up', updated_at=NOW()
+		 WHERE gate_code_col6 = ANY($1::text[]) AND is_lock = false`,
+		normalized); err != nil {
+		log.Printf("markGreenRows error: %v", err)
 	}
 }
 
-func (s *SheetsSync) processLoads(ctx context.Context, rawLoads []RawLoad) error {
+func (s *SheetsSync) processLoads(ctx context.Context, rawLoads []RawLoad) (int, int, error) {
 	for i, l := range rawLoads {
 		rawLoads[i].GateCode = loads.NormalizeGateCode(l.GateCode)
 		rawLoads[i].IsMCC = loads.DetectMCC(l.Notes)
@@ -375,10 +408,14 @@ func (s *SheetsSync) processLoads(ctx context.Context, rawLoads []RawLoad) error
 		rawLoads[i].IsBold = strings.ToUpper(strings.TrimSpace(l.Hot)) == "HOT"
 	}
 
-	return s.batchInsertNew(ctx, rawLoads)
+	return s.batchUpsert(ctx, rawLoads)
 }
 
-func (s *SheetsSync) batchInsertNew(ctx context.Context, rawLoads []RawLoad) error {
+func (s *SheetsSync) batchUpsert(ctx context.Context, rawLoads []RawLoad) (inserted, updated int, err error) {
+	if len(rawLoads) == 0 {
+		return 0, 0, nil
+	}
+
 	batch := &pgx.Batch{}
 
 	for _, load := range rawLoads {
@@ -394,8 +431,21 @@ func (s *SheetsSync) batchInsertNew(ctx context.Context, rawLoads []RawLoad) err
 				delivery_date_location_col4, assigned_user_col5, gate_code_col6,
 				rate_col7, rate_min, rate_max, is_bold, is_mcc, note_mcc,
 				cell_formats, created_at, updated_at
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, NOW(), NOW())
-			ON CONFLICT (gate_code_col6) DO NOTHING
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,NOW(),NOW())
+			ON CONFLICT (gate_code_col6) DO UPDATE SET
+				pick_up_date_col1           = EXCLUDED.pick_up_date_col1,
+				commodity_col2              = EXCLUDED.commodity_col2,
+				pickup_date_location_col3   = EXCLUDED.pickup_date_location_col3,
+				delivery_date_location_col4 = EXCLUDED.delivery_date_location_col4,
+				assigned_user_col5          = EXCLUDED.assigned_user_col5,
+				rate_col7                   = EXCLUDED.rate_col7,
+				rate_min                    = EXCLUDED.rate_min,
+				rate_max                    = EXCLUDED.rate_max,
+				is_bold                     = EXCLUDED.is_bold,
+				is_mcc                      = EXCLUDED.is_mcc,
+				note_mcc                    = EXCLUDED.note_mcc,
+				updated_at                  = NOW()
+			RETURNING (xmax = 0) AS was_inserted
 		`,
 			load.PickUpDate, load.Commodity, load.PickupLocation,
 			load.DeliveryLocation, load.AssignedUser, load.GateCode,
@@ -403,16 +453,26 @@ func (s *SheetsSync) batchInsertNew(ctx context.Context, rawLoads []RawLoad) err
 			load.IsMCC, load.Notes, formatsParam)
 	}
 
-	results := s.db.SendBatch(ctx, batch)
-	defer results.Close()
+	br := s.db.SendBatch(ctx, batch)
+	defer br.Close()
 
 	for i := 0; i < batch.Len(); i++ {
-		if _, err := results.Exec(); err != nil {
-			return fmt.Errorf("batch insert row %d: %w", i, err)
+		rows, qErr := br.Query()
+		if qErr != nil {
+			return inserted, updated, fmt.Errorf("upsert row %d: %w", i, qErr)
 		}
+		if rows.Next() {
+			var wasInserted bool
+			if rows.Scan(&wasInserted) == nil {
+				if wasInserted {
+					inserted++
+				} else {
+					updated++
+				}
+			}
+		}
+		rows.Close()
 	}
 
-	return results.Close()
+	return inserted, updated, br.Close()
 }
-
-

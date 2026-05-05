@@ -1,3 +1,5 @@
+import { useAuthStore } from '../store/authStore'
+
 const API_URL = import.meta.env.VITE_API_URL || ''
 
 class ApiError extends Error {
@@ -32,16 +34,14 @@ async function request<T>(
   })
 
   if (!res.ok) {
-    if (res.status === 401) {
-      localStorage.removeItem('auth_token')
-      localStorage.removeItem('auth_user')
-      window.location.reload()
-    }
     const body = await res.json().catch(() => ({ error: res.statusText }))
+    if (res.status === 401) {
+      useAuthStore.getState().logout()
+      throw new ApiError('Session expired', 401)
+    }
     if (res.status === 403 && body.error === 'ip_not_allowed') {
-      localStorage.removeItem('auth_token')
-      localStorage.removeItem('auth_user')
-      window.location.reload()
+      useAuthStore.getState().logout()
+      throw new ApiError('ip_not_allowed', 403)
     }
     throw new ApiError(body.error || res.statusText, res.status)
   }

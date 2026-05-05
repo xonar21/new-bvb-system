@@ -154,6 +154,15 @@ export function useWebSocket(token: string | null) {
 				useTableLayoutStore.getState().resetLayout()
 				break
 			}
+
+			case 'loads.synced': {
+				queryClient.invalidateQueries({ queryKey: ['loads'] })
+				break
+			}
+
+			case 'sync.error': {
+				break
+			}
 		  }
         } catch {
           // ignore parse errors
