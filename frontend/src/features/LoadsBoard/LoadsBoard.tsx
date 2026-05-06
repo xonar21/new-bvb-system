@@ -437,7 +437,6 @@ export function LoadsBoard() {
                   const row = rows[virtualRow.index]
                   const rowIdx = virtualRow.index
                   const rHeight = virtualRow.size
-                  const hasExplicitHeight = rowIdx in rowHeights
                   const actualRowNum = (pageSize > 0 ? pageIndex * actualPageSize : 0) + rowIdx + 1
                   const rowLocked = isRowLocked(rowIdx)
                   return (
@@ -489,7 +488,7 @@ export function LoadsBoard() {
                               onUpdate={handleUpdate}
                               colKey={columnToColKey[cell.column.id]}
                               onCellSelect={handleCellSelect}
-                              fillHeight={hasExplicitHeight}
+                              fillHeight={true}
                             />
                           </td>
                         )

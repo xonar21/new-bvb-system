@@ -246,6 +246,16 @@ function LoadCellInner({ cell, onUpdate, colKey, onCellSelect, fillHeight }: Loa
     extendDrag(loadId, colKey)
   }, [loadId, colKey])
 
+  const flexAlign = fillHeight ? {
+    justifyContent: cellStyle.textAlign === 'left' ? 'flex-start'
+      : cellStyle.textAlign === 'right' ? 'flex-end'
+      : cellStyle.textAlign === 'center' ? 'center'
+      : undefined,
+    alignItems: cellStyle.verticalAlign === 'top' ? 'flex-start'
+      : cellStyle.verticalAlign === 'bottom' ? 'flex-end'
+      : 'center',
+  } : {}
+
   if (editing && !isGateCode && !isLocked) {
     return (
       <div style={{ position: 'relative' }}>
@@ -282,8 +292,8 @@ function LoadCellInner({ cell, onUpdate, colKey, onCellSelect, fillHeight }: Loa
       onMouseEnter={handleMouseEnter}
       style={{
         position: 'relative',
+        ...flexAlign,
         display: fillHeight ? 'flex' : undefined,
-        alignItems: fillHeight ? 'center' : undefined,
         cursor: formatPainterActive ? 'cell' : (isGateCode || isLocked || isFocusedByOther ? 'default' : 'pointer'),
         fontWeight: cellStyle.fontWeight ?? (isBold ? 700 : 400),
         fontStyle: cellStyle.fontStyle ?? undefined,
