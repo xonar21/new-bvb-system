@@ -7,6 +7,7 @@ import {
   useReactTable,
 } from '@tanstack/react-table'
 import type { SortingState } from '@tanstack/react-table'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { useQueryClient } from '@tanstack/react-query'
 import { useLoads, useUpdateLoad } from '../../hooks/useLoads'
 import { useTableLayout } from '../../hooks/useTableLayout'
@@ -16,6 +17,7 @@ import { OnlineUsersBar } from './OnlineUsersBar'
 import { FormatToolbar } from './FormatToolbar'
 import { RowResizeHandle } from './RowHeaderColumn'
 import { useSelectionStore } from '../../store/selectionStore'
+import { useTableLayoutStore } from '../../store/tableLayoutStore'
 import type { BulkFormatCell, CellFormat, Load } from '../../types/Load'
 
 function useDebounce<T>(value: T, delay: number): T {
@@ -92,10 +94,9 @@ export function LoadsBoard() {
   const { data: loads, isLoading, isError, error } = useLoads(filters)
   const updateMutation = useUpdateLoad()
 
+  const rowHeights = useTableLayoutStore((s) => s.rowHeights)
   const {
     getColumnWidth,
-    getRowHeight,
-    rowHeights,
     isColumnLocked,
     isRowLocked,
     getColumnLockInfo,
@@ -113,21 +114,18 @@ export function LoadsBoard() {
   const endDrag = useSelectionStore((s) => s.endDrag)
   const deactivateFormatPainter = useSelectionStore((s) => s.deactivateFormatPainter)
 
-  // Sync ordered load IDs to selection store
   useEffect(() => {
     if (loads) {
       setOrderedLoadIds(loads.map((l) => l.id))
     }
   }, [loads, setOrderedLoadIds])
 
-  // Global mouseup listener for drag selection
   useEffect(() => {
     const onUp = () => {
       const state = useSelectionStore.getState()
       if (state.isDragging) {
         endDrag()
 
-        // Format painter application
         if (state.formatPainterActive && state.formatPainterSource && state.selectedCells.size > 0) {
           const all = queryClient.getQueriesData<Load[]>({ queryKey: ['loads'] })
           const freshLoads = all.flatMap(([_, data]) => data ?? [])
@@ -167,7 +165,6 @@ export function LoadsBoard() {
           }).catch(() => queryClient.invalidateQueries({ queryKey: ['loads'] }))
         }
 
-        // Auto-deactivate format painter if not sticky
         const fmtState = useSelectionStore.getState()
         if (fmtState.formatPainterActive && !fmtState.formatPainterSticky) {
           deactivateFormatPainter()
@@ -200,7 +197,7 @@ export function LoadsBoard() {
     [updateMutation],
   )
 
-  const handleColumnResizeMouseDown = (e: React.MouseEvent, colId: string) => {
+  const handleColumnResizeMouseDown = useCallback((e: React.MouseEvent, colId: string) => {
     e.preventDefault()
     e.stopPropagation()
     const currentWidth = getColumnWidth(colId, 150)
@@ -209,20 +206,42 @@ export function LoadsBoard() {
       columnLockAcquired.current[colId] = true
       columnResizeDragging.current = { colId, startX: e.clientX, startWidth: currentWidth }
 
+      const thEl = (e.target as HTMLElement).closest('th') as HTMLElement | null
+
       const onMove = (ev: MouseEvent) => {
         if (!columnResizeDragging.current) return
         const diff = ev.clientX - columnResizeDragging.current.startX
         const newWidth = Math.max(50, columnResizeDragging.current.startWidth + diff)
         columnResizeDragging.current.currentWidth = newWidth
-        updateColumnWidthLocal(columnResizeDragging.current.colId, newWidth)
+
+        if (thEl) {
+          thEl.style.width = `${newWidth}px`
+          thEl.style.maxWidth = `${newWidth}px`
+          thEl.style.minWidth = `${newWidth}px`
+          const tableEl = thEl.closest('table')
+          if (tableEl) {
+            const allThs = Array.from(thEl.parentElement!.children)
+            const colIndex = allThs.indexOf(thEl)
+            tableEl.querySelectorAll('tr').forEach((tr) => {
+              const cells = tr.querySelectorAll('td')
+              const tdElem = cells[colIndex - 1] as HTMLElement | undefined
+              if (tdElem) {
+                tdElem.style.width = `${newWidth}px`
+                tdElem.style.maxWidth = `${newWidth}px`
+              }
+            })
+          }
+        }
       }
 
       const onUp = () => {
         if (columnResizeDragging.current) {
-          const { colId, startWidth, currentWidth } = columnResizeDragging.current
-          persistColumnWidth(colId, currentWidth ?? startWidth)
-          releaseLayoutLock('column', colId)
-          columnLockAcquired.current[colId] = false
+          const { colId: cid, startWidth, currentWidth } = columnResizeDragging.current
+          const finalWidth = currentWidth ?? startWidth
+          updateColumnWidthLocal(cid, finalWidth)
+          persistColumnWidth(cid, finalWidth)
+          releaseLayoutLock('column', cid)
+          columnLockAcquired.current[cid] = false
         }
         columnResizeDragging.current = null
         document.removeEventListener('mousemove', onMove)
@@ -236,10 +255,35 @@ export function LoadsBoard() {
       document.body.style.cursor = 'col-resize'
       document.body.style.userSelect = 'none'
     })
-  }
+  }, [getColumnWidth, acquireLayoutLock, updateColumnWidthLocal, persistColumnWidth, releaseLayoutLock])
+
+  const tableContainerRef = useRef<HTMLDivElement>(null)
+  const rows = table.getRowModel().rows
+
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => tableContainerRef.current,
+    estimateSize: (index) => rowHeights[index] ?? 36,
+    getItemKey: (index) => rows[index]?.id ?? String(index),
+    overscan: 10,
+  })
+
+  useEffect(() => {
+    rowVirtualizer.measure()
+  }, [rowHeights, rowVirtualizer])
+
+  const virtualRows = rowVirtualizer.getVirtualItems()
+  const totalSize = rowVirtualizer.getTotalSize()
 
   const pageCount = table.getPageCount()
   const showPagination = pageSize > 0 && loads && loads.length > 0
+
+  const columnHeaderWidths = useMemo(() => {
+    return columns.map((col) => ({
+      id: col.id!,
+      width: getColumnWidth(col.id!, 150),
+    }))
+  }, [getColumnWidth, columns])
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui, sans-serif', padding: '16px', overflow: 'hidden' }}>
@@ -303,7 +347,7 @@ export function LoadsBoard() {
         <FormatToolbar orderedLoadIds={loads?.map((l) => l.id) ?? []} loads={loads ?? []} />
       </div>
 
-      <div style={{ flex: 1, overflow: 'auto', border: '1px solid #ddd', borderRadius: '4px' }}>
+      <div ref={tableContainerRef} style={{ flex: 1, overflow: 'auto', border: '1px solid #ddd', borderRadius: '4px' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', tableLayout: 'fixed' }}>
           <thead>
             {table.getHeaderGroups().map((hg) => (
@@ -317,7 +361,7 @@ export function LoadsBoard() {
                 }}>#</th>
                 {hg.headers.map((header) => {
                   const colId = header.column.id
-                  const colWidth = getColumnWidth(colId, 150)
+                  const colWidth = columnHeaderWidths.find((c) => c.id === colId)?.width ?? 150
                   const locked = isColumnLocked(colId)
                   const lockInfo = getColumnLockInfo(colId)
                   return (
@@ -375,74 +419,89 @@ export function LoadsBoard() {
                   Failed to load: {error instanceof Error ? error.message : 'Unknown error'}
                 </td>
               </tr>
-            ) : table.getRowModel().rows.length === 0 ? (
+            ) : rows.length === 0 ? (
               <tr>
                 <td colSpan={columns.length + 1} style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
                   No loads found
                 </td>
               </tr>
             ) : (
-              table.getRowModel().rows.map((row, rowIdx) => {
-                const rHeight = getRowHeight(rowIdx, 36)
-                const hasExplicitHeight = rowIdx in rowHeights
-                const actualRowNum = (pageSize > 0 ? pageIndex * actualPageSize : 0) + rowIdx + 1
-                const rowLocked = isRowLocked(rowIdx)
-                return (
-                  <tr
-                    key={row.id}
-                    style={{
-                      borderBottom: '1px solid #eee',
-                      background: row.original.is_mcc ? '#fffef5' : undefined,
-                      ...(hasExplicitHeight ? { height: `${rHeight}px` } : {}),
-                    }}
-                  >
-                    <td style={{
-                      width: '50px', minWidth: '50px', maxWidth: '50px',
-                      padding: '0 2px', textAlign: 'center',
-                      borderRight: '1px solid #ddd', borderBottom: '1px solid #eee',
-                      fontFamily: 'monospace', fontSize: '11px',
-                      color: rowLocked ? '#f57f17' : '#888',
-                      background: rowLocked ? '#fff8e1' : '#f5f5f5',
-                      position: 'relative', userSelect: 'none',
-                      height: `${rHeight}px`, lineHeight: `${rHeight}px`,
-                      overflow: 'hidden',
-                    }}
-                      title={rowLocked ? 'Row locked by another user' : `Row ${actualRowNum}`}
-                    >
-                      {actualRowNum}
-                      <RowResizeHandle rowIdx={rowIdx} />
-                    </td>
-                    {row.getVisibleCells().map((cell) => {
-                      const colId = cell.column.id
-                      const colWidth = getColumnWidth(colId, 150)
-                      return (
-                        <td
-                          key={cell.id}
-                          style={{
-                            padding: 0,
-                            ...(hasExplicitHeight ? { height: `${rHeight}px` } : {}),
-                            borderRight: '1px solid #eee',
-                            width: `${colWidth}px`,
-                            minWidth: '50px',
-                            maxWidth: `${colWidth}px`,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          <LoadCell
-                            cell={cell as any}
-                            onUpdate={handleUpdate}
-                            colKey={columnToColKey[cell.column.id]}
-                            onCellSelect={handleCellSelect}
-                            fillHeight={hasExplicitHeight}
-                          />
-                        </td>
-                      )
-                    })}
+              <>
+                {virtualRows.length > 0 && virtualRows[0].start > 0 && (
+                  <tr style={{ height: virtualRows[0].start }}>
+                    <td colSpan={columns.length + 1} style={{ padding: 0, border: 'none' }} />
                   </tr>
-                )
-              })
+                )}
+                {virtualRows.map((virtualRow) => {
+                  const row = rows[virtualRow.index]
+                  const rowIdx = virtualRow.index
+                  const rHeight = virtualRow.size
+                  const hasExplicitHeight = rowIdx in rowHeights
+                  const actualRowNum = (pageSize > 0 ? pageIndex * actualPageSize : 0) + rowIdx + 1
+                  const rowLocked = isRowLocked(rowIdx)
+                  return (
+                    <tr
+                      key={row.id}
+                      data-index={virtualRow.index}
+                      style={{
+                        borderBottom: '1px solid #eee',
+                        background: row.original.is_mcc ? '#fffef5' : undefined,
+                        height: `${rHeight}px`,
+                      }}
+                    >
+                      <td style={{
+                        width: '50px', minWidth: '50px', maxWidth: '50px',
+                        padding: '0 2px', textAlign: 'center',
+                        borderRight: '1px solid #ddd', borderBottom: '1px solid #eee',
+                        fontFamily: 'monospace', fontSize: '11px',
+                        color: rowLocked ? '#f57f17' : '#888',
+                        background: rowLocked ? '#fff8e1' : '#f5f5f5',
+                        position: 'relative', userSelect: 'none',
+                        height: `${rHeight}px`, lineHeight: `${rHeight}px`,
+                        overflow: 'hidden',
+                      }}
+                        title={rowLocked ? 'Row locked by another user' : `Row ${actualRowNum}`}
+                      >
+                        {actualRowNum}
+                        <RowResizeHandle rowIdx={rowIdx} />
+                      </td>
+                      {row.getVisibleCells().map((cell) => {
+                        const colId = cell.column.id
+                        const colWidth = columnHeaderWidths.find((c) => c.id === colId)?.width ?? 150
+                        return (
+                          <td
+                            key={cell.id}
+                            style={{
+                              padding: 0,
+                              height: `${rHeight}px`,
+                              borderRight: '1px solid #eee',
+                              width: `${colWidth}px`,
+                              minWidth: '50px',
+                              maxWidth: `${colWidth}px`,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            <LoadCell
+                              cell={cell as any}
+                              onUpdate={handleUpdate}
+                              colKey={columnToColKey[cell.column.id]}
+                              onCellSelect={handleCellSelect}
+                              fillHeight={hasExplicitHeight}
+                            />
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  )
+                })}
+                {virtualRows.length > 0 && (
+                  <tr style={{ height: totalSize - virtualRows[virtualRows.length - 1].end }}>
+                    <td colSpan={columns.length + 1} style={{ padding: 0, border: 'none' }} />
+                  </tr>
+                )}
+              </>
             )}
           </tbody>
         </table>

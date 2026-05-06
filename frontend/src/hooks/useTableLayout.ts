@@ -1,24 +1,22 @@
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useRef } from 'react'
 import { apiClient } from '../api/client'
 import { useTableLayoutStore } from '../store/tableLayoutStore'
 import type { TableLayoutResponse, LockAcquireResponse } from '../types/Load'
 
 export function useTableLayout() {
-  const {
-    columnWidths,
-    rowHeights,
-    activeLocks,
-    isLoading,
-    setColumnWidths,
-    setRowHeights,
-    setActiveLocks,
-    updateColumnWidth,
-    updateRowHeight,
-    addLock,
-    removeLock,
-    setIsLoading,
-    resetLayout,
-  } = useTableLayoutStore()
+  const columnWidths = useTableLayoutStore((s) => s.columnWidths)
+  const rowHeights = useTableLayoutStore((s) => s.rowHeights)
+  const activeLocks = useTableLayoutStore((s) => s.activeLocks)
+  const isLoading = useTableLayoutStore((s) => s.isLoading)
+  const setColumnWidths = useTableLayoutStore((s) => s.setColumnWidths)
+  const setRowHeights = useTableLayoutStore((s) => s.setRowHeights)
+  const setActiveLocks = useTableLayoutStore((s) => s.setActiveLocks)
+  const updateColumnWidth = useTableLayoutStore((s) => s.updateColumnWidth)
+  const updateRowHeight = useTableLayoutStore((s) => s.updateRowHeight)
+  const addLock = useTableLayoutStore((s) => s.addLock)
+  const removeLock = useTableLayoutStore((s) => s.removeLock)
+  const setIsLoading = useTableLayoutStore((s) => s.setIsLoading)
+  const resetLayout = useTableLayoutStore((s) => s.resetLayout)
 
   useEffect(() => {
     let cancelled = false
@@ -104,15 +102,19 @@ export function useTableLayout() {
           target_name: targetName,
         })
       } catch {
-        // silent
       }
     },
     [],
   )
 
+  const rafRef = useRef<number>(0)
+
   const updateColumnWidthLocal = useCallback(
     (colName: string, width: number) => {
-      updateColumnWidth(colName, width)
+      cancelAnimationFrame(rafRef.current)
+      rafRef.current = requestAnimationFrame(() => {
+        updateColumnWidth(colName, width)
+      })
     },
     [updateColumnWidth],
   )
@@ -125,9 +127,14 @@ export function useTableLayout() {
     [],
   )
 
+  const rowRafRef = useRef<number>(0)
+
   const updateRowHeightLocal = useCallback(
     (rowIdx: number, height: number) => {
-      updateRowHeight(rowIdx, height)
+      cancelAnimationFrame(rowRafRef.current)
+      rowRafRef.current = requestAnimationFrame(() => {
+        updateRowHeight(rowIdx, height)
+      })
     },
     [updateRowHeight],
   )

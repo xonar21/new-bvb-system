@@ -15,14 +15,12 @@ export function useWebSocket(token: string | null) {
   const mountedRef = useRef(true)
   const attemptRef = useRef(0)
   const queryClient = useQueryClient()
-  const {
-    setConnected,
-    setOnlineUsers,
-    setSendMessage,
-    setCellFocus,
-    removeCellFocus,
-    clearOfflineUserFocuses,
-  } = useWSStore()
+  const setConnected = useWSStore((s) => s.setConnected)
+  const setOnlineUsers = useWSStore((s) => s.setOnlineUsers)
+  const setSendMessage = useWSStore((s) => s.setSendMessage)
+  const setCellFocus = useWSStore((s) => s.setCellFocus)
+  const removeCellFocus = useWSStore((s) => s.removeCellFocus)
+  const clearOfflineUserFocuses = useWSStore((s) => s.clearOfflineUserFocuses)
 
   useEffect(() => {
     mountedRef.current = true

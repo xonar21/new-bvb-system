@@ -2,7 +2,8 @@ import { useState, useRef, useEffect } from 'react'
 import { useWSStore } from '../../store/wsStore'
 
 export function OnlineUsersBar() {
-  const { isConnected, onlineUsers } = useWSStore()
+  const isConnected = useWSStore((s) => s.isConnected)
+  const onlineUsers = useWSStore((s) => s.onlineUsers)
   const [expanded, setExpanded] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 

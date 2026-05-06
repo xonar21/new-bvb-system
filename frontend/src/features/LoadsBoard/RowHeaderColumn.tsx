@@ -1,6 +1,8 @@
 import { useCallback, useRef, useState } from 'react'
-import { useTableLayout } from '../../hooks/useTableLayout'
+import { useTableLayoutStore } from '../../store/tableLayoutStore'
 import { useAuthStore } from '../../store/authStore'
+import { apiClient } from '../../api/client'
+import type { LockAcquireResponse } from '../../types/Load'
 
 const DEFAULT_ROW_HEIGHT = 36
 
@@ -9,20 +11,12 @@ interface RowResizeHandleProps {
 }
 
 export function RowResizeHandle({ rowIdx }: RowResizeHandleProps) {
-  const {
-    getRowHeight,
-    isRowLocked,
-    getRowLockInfo,
-    acquireLock,
-    releaseLock,
-    updateRowHeightLocal,
-    persistRowHeight,
-  } = useTableLayout()
-
+  const lockInfo = useTableLayoutStore((s) => s.activeLocks.rows[String(rowIdx)] ?? null)
   const currentUser = useAuthStore((s) => s.user)
   const draggingRef = useRef<{ startY: number; startHeight: number; currentHeight?: number } | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const lockAcquired = useRef(false)
+  const rowIdxStr = String(rowIdx)
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -30,28 +24,51 @@ export function RowResizeHandle({ rowIdx }: RowResizeHandleProps) {
       e.stopPropagation()
       if (!currentUser) return
 
-      const rowIndexStr = String(rowIdx)
-      acquireLock('row', rowIndexStr).then((success) => {
-        if (!success) return
+      const store = useTableLayoutStore.getState()
+      const currentHeight = store.rowHeights[rowIdx] ?? DEFAULT_ROW_HEIGHT
+
+      apiClient.post<LockAcquireResponse>('/api/table-layout/lock-acquire', {
+        target_type: 'row',
+        target_name: rowIdxStr,
+      }).then((res) => {
+        if (!res.success) return
         lockAcquired.current = true
-        const currentHeight = getRowHeight(rowIdx, DEFAULT_ROW_HEIGHT)
         draggingRef.current = { startY: e.clientY, startHeight: currentHeight }
         setIsDragging(true)
+
+        const rowElement = (e.target as HTMLElement).closest('tr') as HTMLElement | null
 
         const onMove = (ev: MouseEvent) => {
           if (!draggingRef.current) return
           const diff = ev.clientY - draggingRef.current.startY
           const newHeight = Math.max(20, draggingRef.current.startHeight + diff)
           draggingRef.current.currentHeight = newHeight
-          updateRowHeightLocal(rowIdx, newHeight)
+
+          if (rowElement) {
+            rowElement.style.height = `${newHeight}px`
+            const tds = rowElement.querySelectorAll('td')
+            tds.forEach((td) => {
+              ;(td as HTMLElement).style.height = `${newHeight}px`
+            })
+            const firstTd = tds[0] as HTMLElement | null
+            if (firstTd) {
+              firstTd.style.lineHeight = `${newHeight}px`
+            }
+          }
         }
 
         const onUp = () => {
           if (draggingRef.current?.currentHeight !== undefined) {
-            persistRowHeight(rowIdx, draggingRef.current.currentHeight)
+            const finalHeight = draggingRef.current.currentHeight
+            useTableLayoutStore.getState().updateRowHeight(rowIdx, finalHeight)
+            apiClient.put(`/api/table-layout/row/${rowIdx}/height`, { height: finalHeight }).catch(() => {})
           }
           if (lockAcquired.current) {
-            releaseLock('row', String(rowIdx))
+            apiClient.post('/api/table-layout/lock-release', {
+              target_type: 'row',
+              target_name: rowIdxStr,
+            }).catch(() => {})
+            useTableLayoutStore.getState().removeLock('row', rowIdxStr)
             lockAcquired.current = false
           }
           draggingRef.current = null
@@ -68,17 +85,16 @@ export function RowResizeHandle({ rowIdx }: RowResizeHandleProps) {
         document.body.style.userSelect = 'none'
       })
     },
-    [currentUser, rowIdx, acquireLock, releaseLock, getRowHeight, updateRowHeightLocal, persistRowHeight],
+    [currentUser, rowIdx, rowIdxStr],
   )
 
-  const locked = isRowLocked(rowIdx)
-  const lockInfo = getRowLockInfo(rowIdx)
+  const isRowLocked = lockInfo !== null
 
   return (
     <div
       onMouseDown={handleMouseDown}
       title={
-        locked && lockInfo
+        isRowLocked && lockInfo
           ? `${lockInfo.user_name} editing (expires ${new Date(lockInfo.expires_at).toLocaleTimeString()})`
           : 'Drag to resize row height'
       }
@@ -89,7 +105,7 @@ export function RowResizeHandle({ rowIdx }: RowResizeHandleProps) {
         right: 0,
         height: '4px',
         cursor: 'row-resize',
-        background: locked ? '#f57f17' : 'transparent',
+        background: isRowLocked ? '#f57f17' : 'transparent',
         opacity: isDragging ? 1 : 0.3,
         zIndex: 2,
       }}

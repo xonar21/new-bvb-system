@@ -319,6 +319,19 @@ function LoadCellInner({ cell, onUpdate, colKey, onCellSelect, fillHeight }: Loa
   )
 }
 
+function shallowEqualFormats(a: Record<string, unknown> | undefined, b: Record<string, unknown> | undefined): boolean {
+  if (a === b) return true
+  if (!a && !b) return true
+  if (!a || !b) return false
+  const keysA = Object.keys(a)
+  const keysB = Object.keys(b)
+  if (keysA.length !== keysB.length) return false
+  for (const key of keysA) {
+    if (a[key] !== b[key]) return false
+  }
+  return true
+}
+
 function areLoadCellPropsEqual(prev: LoadCellProps, next: LoadCellProps): boolean {
   if (prev.colKey !== next.colKey) return false
   if (prev.fillHeight !== next.fillHeight) return false
@@ -332,7 +345,7 @@ function areLoadCellPropsEqual(prev: LoadCellProps, next: LoadCellProps): boolea
   if (po.is_mcc !== no.is_mcc) return false
   if (prev.cell.getValue() !== next.cell.getValue()) return false
   const colK = next.colKey ?? ''
-  if (JSON.stringify(po.cell_formats?.[colK]) !== JSON.stringify(no.cell_formats?.[colK])) return false
+  if (!shallowEqualFormats(po.cell_formats?.[colK] as Record<string, unknown> | undefined, no.cell_formats?.[colK] as Record<string, unknown> | undefined)) return false
   return true
 }
 
