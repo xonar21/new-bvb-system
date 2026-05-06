@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '../api/client'
 import type { BulkFormatCell, BulkOrderItem, CellFormat, Load, LoadsResponse, UpdateCellFormatArgs, UpdateLoadRequest } from '../types/Load'
+import { useUndoStore } from '../store/undoStore'
 
 interface LoadsFilters {
   date_from?: string
@@ -59,6 +60,25 @@ export function useUpdateLoad() {
 
       const all = queryClient.getQueriesData<Load[]>({ queryKey: ['loads'] })
       const prev = all
+
+      const changedFields = Object.entries(data).filter(([, v]) => v !== undefined)
+      if (changedFields.length > 0) {
+        for (const [_, loads] of prev) {
+          if (loads) {
+            const load = loads.find((l) => l.id === id)
+            if (load) {
+              const [field, newValue] = changedFields[0]
+              useUndoStore.getState().push({
+                loadId: id,
+                field,
+                oldValue: (load as Record<string, unknown>)[field],
+                newValue,
+              })
+              break
+            }
+          }
+        }
+      }
 
       queryClient.setQueriesData<Load[]>({ queryKey: ['loads'] }, (old) =>
         old?.map((l) => (l.id === id ? { ...l, ...data } as Load : l)) ?? [],

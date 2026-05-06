@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useWSStore } from '../store/wsStore'
 import { useSyncStore } from '../store/syncStore'
 import { useTableLayoutStore } from '../store/tableLayoutStore'
+import { useUndoStore } from '../store/undoStore'
 import type { CellFocusPayload, LayoutColumnWidthChanged, LayoutLockAcquired, LayoutLockReleased, LayoutRowHeightChanged, Load, LockInfo, WSMessage } from '../types/Load'
 
 const WS_URL = import.meta.env.VITE_WS_URL || '/ws'
@@ -80,6 +81,10 @@ export function useWebSocket(token: string | null) {
             }
             case 'load.deleted': {
               const { id } = msg.payload as { id: number }
+              const undoEntry = useUndoStore.getState().entry
+              if (undoEntry && undoEntry.loadId === id) {
+                useUndoStore.getState().clear()
+              }
               queryClient.setQueriesData<Load[]>({ queryKey: ['loads'] }, (old) =>
                 old?.filter((l) => l.id !== id) ?? [],
               )

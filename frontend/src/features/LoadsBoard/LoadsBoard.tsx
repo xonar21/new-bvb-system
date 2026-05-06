@@ -10,6 +10,7 @@ import type { SortingState } from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useQueryClient } from '@tanstack/react-query'
 import { useLoads, useUpdateLoad } from '../../hooks/useLoads'
+import { useUndo } from '../../hooks/useUndo'
 import { useTableLayout } from '../../hooks/useTableLayout'
 import { columns, columnToColKey } from './columns'
 import { LoadCell } from './LoadCell'
@@ -93,6 +94,18 @@ export function LoadsBoard() {
 
   const { data: loads, isLoading, isError, error } = useLoads(filters)
   const updateMutation = useUpdateLoad()
+  const { canUndo, performUndo } = useUndo()
+  const [toastMessage, setToastMessage] = useState<string | null>(null)
+  const [toastType, setToastType] = useState<'success' | 'error'>('success')
+
+  const handleUndo = useCallback(async () => {
+    const result = await performUndo()
+    if (result) {
+      setToastMessage(result.message)
+      setToastType(result.success ? 'success' : 'error')
+      setTimeout(() => setToastMessage(null), 3000)
+    }
+  }, [performUndo])
 
   const rowHeights = useTableLayoutStore((s) => s.rowHeights)
   const {
@@ -326,6 +339,28 @@ export function LoadsBoard() {
           />
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <button
+            onClick={handleUndo}
+            disabled={!canUndo}
+            title="Undo last change (Ctrl+Z)"
+            style={{
+              padding: '4px 10px',
+              borderRadius: '4px',
+              border: '1px solid #ccc',
+              background: canUndo ? '#fff' : '#f5f5f5',
+              cursor: canUndo ? 'pointer' : 'default',
+              fontSize: '13px',
+              color: canUndo ? '#333' : '#bbb',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"/>
+            </svg>
+            Undo
+          </button>
           <label style={{ fontSize: '13px', color: '#666' }}>
             Rows:
             <select
@@ -559,6 +594,26 @@ export function LoadsBoard() {
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {toastMessage && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: '24px',
+            right: '24px',
+            padding: '10px 20px',
+            borderRadius: '6px',
+            color: '#fff',
+            fontSize: '14px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+            zIndex: 9999,
+            background: toastType === 'success' ? '#4caf50' : '#f44336',
+            transition: 'opacity 0.3s',
+          }}
+        >
+          {toastMessage}
         </div>
       )}
     </div>
