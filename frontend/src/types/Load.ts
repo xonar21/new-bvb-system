@@ -95,7 +95,7 @@ export interface LoginResponse {
 }
 
 export interface WSMessage {
-  type: 'load.created' | 'load.updated' | 'load.deleted' | 'load.order-updated' | 'presence' | 'cell.focus' | 'ip.restriction-changed' | 'layout.column-width-changed' | 'layout.row-height-changed' | 'layout.lock-acquired' | 'layout.lock-released' | 'layout.reset'
+  type: 'load.created' | 'load.updated' | 'load.deleted' | 'load.order-updated' | 'presence' | 'cell.focus' | 'ip.restriction-changed' | 'layout.column-width-changed' | 'layout.row-height-changed' | 'layout.lock-acquired' | 'layout.lock-released' | 'layout.reset' | 'loads.synced' | 'sync.error'
   payload: unknown
 }
 
