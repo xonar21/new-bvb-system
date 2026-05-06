@@ -118,7 +118,14 @@ func main() {
 	api.Use(allowedIPsMiddleware.Handler())
 
 	if sheetSync != nil {
-		syncHandler := sheets.NewHandler(sheetSync)
+		sheetSync.SetOnProgress(func(processed, total int) {
+			wsHub.Broadcast(ws.Message{
+				Type:    "sync.progress",
+				Payload: map[string]interface{}{"processed": processed, "total": total},
+			})
+		})
+
+		syncHandler := sheets.NewHandler(sheetSync, wsHub)
 		api.Post("/sync", authMW, auth.RequireRole("root"), syncHandler.TriggerSync)
 	}
 

@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuthStore } from '../store/authStore'
 import { useWSStore } from '../store/wsStore'
+import { useSyncStore } from '../store/syncStore'
 import { useSync } from '../hooks/useSync'
 
 interface SidebarProps {
@@ -11,9 +12,30 @@ interface SidebarProps {
 export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
   const { user, logout } = useAuthStore()
   const { isConnected, onlineUsers } = useWSStore()
+  const { syncStatus, syncResult, syncError, syncStartedAt, syncProgress, resetSync } = useSyncStore()
   const syncMutation = useSync()
-  const [syncMsg, setSyncMsg] = useState<string | null>(null)
+  const [elapsed, setElapsed] = useState(0)
   const isRoot = user?.role === 'root'
+
+  useEffect(() => {
+    if (syncStatus !== 'running') {
+      setElapsed(0)
+      return
+    }
+    const interval = setInterval(() => {
+      if (syncStartedAt) {
+        setElapsed(Math.floor((Date.now() - syncStartedAt) / 1000))
+      }
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [syncStatus, syncStartedAt])
+
+  useEffect(() => {
+    if (syncStatus === 'success') {
+      const timer = setTimeout(() => resetSync(), 10000)
+      return () => clearTimeout(timer)
+    }
+  }, [syncStatus, resetSync])
 
   const tabs = [
     { id: 'loads', label: 'Loads' },
@@ -24,15 +46,16 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
   ]
 
   const handleSync = async () => {
-    setSyncMsg(null)
     try {
       await syncMutation.mutateAsync()
-      setSyncMsg('Sync started')
     } catch {
-      setSyncMsg('Sync failed')
+      // WS will handle error state
     }
-    setTimeout(() => setSyncMsg(null), 3000)
   }
+
+  const progressPct = syncProgress
+    ? Math.min(100, Math.round((syncProgress.processed / syncProgress.total) * 100))
+    : 0
 
   return (
     <div
@@ -47,6 +70,7 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
         fontFamily: 'system-ui, sans-serif',
       }}
     >
+      <style>{`@keyframes sync-spin { to { transform: rotate(360deg); } }`}</style>
       <div
         style={{
           padding: '20px 16px',
@@ -88,24 +112,100 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
           <div style={{ padding: '16px 16px 0' }}>
             <button
               onClick={handleSync}
-              disabled={syncMutation.isPending}
+              disabled={syncStatus === 'running'}
               style={{
                 padding: '6px 12px',
                 borderRadius: '4px',
-                border: '1px solid #4a90d9',
-                background: 'transparent',
-                color: '#4a90d9',
-                cursor: syncMutation.isPending ? 'not-allowed' : 'pointer',
+                border: syncStatus === 'running' ? '1px solid #555' : '1px solid #4a90d9',
+                background: syncStatus === 'running' ? '#2a2d35' : 'transparent',
+                color: syncStatus === 'running' ? '#888' : '#4a90d9',
+                cursor: syncStatus === 'running' ? 'not-allowed' : 'pointer',
                 fontSize: '12px',
                 width: '100%',
-                opacity: syncMutation.isPending ? 0.6 : 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px',
+                opacity: syncStatus === 'running' ? 0.7 : 1,
               }}
             >
-              {syncMutation.isPending ? 'Syncing...' : 'Sync Now'}
+              {syncStatus === 'running' && (
+                <span style={{
+                  display: 'inline-block',
+                  width: '12px',
+                  height: '12px',
+                  borderRadius: '50%',
+                  border: '2px solid #888',
+                  borderTopColor: 'transparent',
+                  animation: 'sync-spin 0.8s linear infinite',
+                }} />
+              )}
+              {syncStatus === 'running' ? `Syncing${elapsed > 0 ? ` (${elapsed}s)` : ''}` : 'Sync Now'}
             </button>
-            {syncMsg && (
-              <div style={{ fontSize: '11px', color: syncMsg === 'Sync failed' ? '#f44336' : '#4caf50', marginTop: '4px', textAlign: 'center' }}>
-                {syncMsg}
+
+            {syncStatus === 'running' && syncProgress && syncProgress.total > 0 && (
+              <div style={{ marginTop: '8px' }}>
+                <div style={{
+                  height: '4px',
+                  background: '#2a2d35',
+                  borderRadius: '2px',
+                  overflow: 'hidden',
+                }}>
+                  <div style={{
+                    height: '100%',
+                    width: `${progressPct}%`,
+                    background: '#4a90d9',
+                    borderRadius: '2px',
+                    transition: 'width 0.3s ease',
+                  }} />
+                </div>
+                <div style={{ fontSize: '10px', color: '#888', marginTop: '2px', textAlign: 'center' }}>
+                  {syncProgress.processed} / {syncProgress.total} rows
+                </div>
+              </div>
+            )}
+
+            {syncStatus === 'success' && syncResult && (
+              <div style={{
+                marginTop: '8px',
+                padding: '6px 8px',
+                fontSize: '11px',
+                color: '#4caf50',
+                background: '#1b3a1b',
+                borderRadius: '4px',
+                textAlign: 'center',
+              }}>
+                ✓ Synced — {syncResult.inserted} inserted, {syncResult.updated} updated
+              </div>
+            )}
+
+            {syncStatus === 'error' && syncError && (
+              <div style={{
+                marginTop: '8px',
+                padding: '6px 8px',
+                fontSize: '11px',
+                color: '#f44336',
+                background: '#3a1b1b',
+                borderRadius: '4px',
+                textAlign: 'center',
+                position: 'relative',
+                paddingRight: '20px',
+              }}>
+                {syncError}
+                <button
+                  onClick={resetSync}
+                  style={{
+                    position: 'absolute',
+                    top: '2px',
+                    right: '4px',
+                    border: 'none',
+                    background: 'none',
+                    color: '#f44336',
+                    cursor: 'pointer',
+                    fontSize: '11px',
+                    padding: '0 2px',
+                  }}
+                >✕</button>
               </div>
             )}
           </div>

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useWSStore } from '../store/wsStore'
+import { useSyncStore } from '../store/syncStore'
 import { useTableLayoutStore } from '../store/tableLayoutStore'
 import type { CellFocusPayload, LayoutColumnWidthChanged, LayoutLockAcquired, LayoutLockReleased, LayoutRowHeightChanged, Load, LockInfo, WSMessage } from '../types/Load'
 
@@ -153,12 +154,35 @@ export function useWebSocket(token: string | null) {
 				break
 			}
 
+			case 'sync.started': {
+				useSyncStore.getState().setSyncStatus('running')
+				useSyncStore.getState().setSyncStartedAt(Date.now())
+				useSyncStore.getState().setSyncResult(null)
+				useSyncStore.getState().setSyncError(null)
+				useSyncStore.getState().setSyncProgress(null)
+				break
+			}
+
+			case 'sync.progress': {
+				const p = msg.payload as { processed: number; total: number }
+				useSyncStore.getState().setSyncProgress({ processed: p.processed, total: p.total })
+				break
+			}
+
 			case 'loads.synced': {
+				const p = msg.payload as { inserted: number; updated: number }
 				queryClient.invalidateQueries({ queryKey: ['loads'] })
+				useSyncStore.getState().setSyncStatus('success')
+				useSyncStore.getState().setSyncResult({ inserted: p.inserted, updated: p.updated })
+				useSyncStore.getState().setSyncProgress(null)
 				break
 			}
 
 			case 'sync.error': {
+				const p = msg.payload as { error: string }
+				useSyncStore.getState().setSyncStatus('error')
+				useSyncStore.getState().setSyncError(p.error)
+				useSyncStore.getState().setSyncProgress(null)
 				break
 			}
 		  }

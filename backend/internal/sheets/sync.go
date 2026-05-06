@@ -35,6 +35,7 @@ type SheetsSync struct {
 	sheetID    string
 	onComplete func(inserted, updated int)
 	onError    func(err error)
+	onProgress func(processed, total int)
 }
 
 func NewSync(client *Client, db *pgxpool.Pool, sheetID string) *SheetsSync {
@@ -48,6 +49,10 @@ func NewSync(client *Client, db *pgxpool.Pool, sheetID string) *SheetsSync {
 func (s *SheetsSync) SetCallbacks(onComplete func(int, int), onError func(error)) {
 	s.onComplete = onComplete
 	s.onError = onError
+}
+
+func (s *SheetsSync) SetOnProgress(onProgress func(int, int)) {
+	s.onProgress = onProgress
 }
 
 func (s *SheetsSync) Sync(ctx context.Context) error {
@@ -118,6 +123,10 @@ func (s *SheetsSync) Sync(ctx context.Context) error {
 		greenRowGateCodes = append(greenRowGateCodes, greenCodes...)
 		processedCount += len(chunkLoads)
 		greenCount += len(greenCodes)
+
+		if s.onProgress != nil {
+			s.onProgress(endRow-1, totalRows-1)
+		}
 	}
 
 	// 3. Process green rows: set status='pick up' on existing loads
@@ -432,20 +441,8 @@ func (s *SheetsSync) batchUpsert(ctx context.Context, rawLoads []RawLoad) (inser
 				rate_col7, rate_min, rate_max, is_bold, is_mcc, note_mcc,
 				cell_formats, created_at, updated_at
 			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,NOW(),NOW())
-			ON CONFLICT (gate_code_col6) DO UPDATE SET
-				pick_up_date_col1           = EXCLUDED.pick_up_date_col1,
-				commodity_col2              = EXCLUDED.commodity_col2,
-				pickup_date_location_col3   = EXCLUDED.pickup_date_location_col3,
-				delivery_date_location_col4 = EXCLUDED.delivery_date_location_col4,
-				assigned_user_col5          = EXCLUDED.assigned_user_col5,
-				rate_col7                   = EXCLUDED.rate_col7,
-				rate_min                    = EXCLUDED.rate_min,
-				rate_max                    = EXCLUDED.rate_max,
-				is_bold                     = EXCLUDED.is_bold,
-				is_mcc                      = EXCLUDED.is_mcc,
-				note_mcc                    = EXCLUDED.note_mcc,
-				updated_at                  = NOW()
-			RETURNING (xmax = 0) AS was_inserted
+			ON CONFLICT (gate_code_col6) DO NOTHING
+			RETURNING 1
 		`,
 			load.PickUpDate, load.Commodity, load.PickupLocation,
 			load.DeliveryLocation, load.AssignedUser, load.GateCode,
@@ -459,17 +456,10 @@ func (s *SheetsSync) batchUpsert(ctx context.Context, rawLoads []RawLoad) (inser
 	for i := 0; i < batch.Len(); i++ {
 		rows, qErr := br.Query()
 		if qErr != nil {
-			return inserted, updated, fmt.Errorf("upsert row %d: %w", i, qErr)
+			return inserted, 0, fmt.Errorf("insert row %d: %w", i, qErr)
 		}
 		if rows.Next() {
-			var wasInserted bool
-			if rows.Scan(&wasInserted) == nil {
-				if wasInserted {
-					inserted++
-				} else {
-					updated++
-				}
-			}
+			inserted++
 		}
 		rows.Close()
 	}
