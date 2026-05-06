@@ -1,7 +1,9 @@
 package loads
 
 import (
+	"fmt"
 	"strconv"
+	"strings"
 
 	"bvb-datatable/internal/ws"
 
@@ -32,6 +34,7 @@ func (h *Handler) RegisterRoutes(api fiber.Router, auth fiber.Handler) {
 	loads.Patch("/:id/format", h.UpdateFormat)
 	loads.Post("/bulk-format", h.BulkFormat)
 	loads.Post("/bulk-order", h.BulkOrder)
+	loads.Post("/bulk-update", h.BulkUpdate)
 }
 
 func (h *Handler) Index(c *fiber.Ctx) error {
@@ -217,4 +220,88 @@ func (h *Handler) BulkOrder(c *fiber.Ctx) error {
 	})
 
 	return c.JSON(fiber.Map{"message": "order updated"})
+}
+
+func (h *Handler) BulkUpdate(c *fiber.Ctx) error {
+	var req BulkUpdateRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Invalid JSON"})
+	}
+
+	if len(req.Updates) == 0 {
+		return c.Status(400).JSON(fiber.Map{"error": "No updates"})
+	}
+
+	if len(req.Updates) > 1000 {
+		return c.Status(400).JSON(fiber.Map{"error": "Max 1000 rows per request"})
+	}
+
+	// Validate all items first
+	response := BulkUpdateResponse{
+		Success: []int64{},
+		Errors:  []BulkUpdateError{},
+	}
+
+	var validItems []BulkUpdateItem
+	for _, item := range req.Updates {
+		hasErrors := false
+		for field, val := range item.Patch {
+			if err := ValidateBulkUpdateItem(field, val); err != nil {
+				response.Errors = append(response.Errors, BulkUpdateError{
+					ID:     item.ID,
+					Field:  field,
+					Reason: err.Error(),
+				})
+				hasErrors = true
+			}
+		}
+
+		// Check gate_code uniqueness
+		if gc, ok := item.Patch["gate_code_col6"]; ok {
+			gcStr, ok := gc.(string)
+			if ok {
+				gcStr = strings.TrimSpace(gcStr)
+				if gcStr != "" {
+					exists, err := h.repo.ExistsByGateCode(c.Context(), gcStr)
+					if err == nil && exists {
+						response.Errors = append(response.Errors, BulkUpdateError{
+							ID:     item.ID,
+							Field:  "gate_code_col6",
+							Reason: "gate_code already used by another load",
+						})
+						hasErrors = true
+					}
+				}
+			}
+		}
+
+		if !hasErrors {
+			validItems = append(validItems, item)
+		}
+	}
+
+	if len(response.Errors) > 0 {
+		return c.Status(409).JSON(response)
+	}
+
+	// Execute bulk update
+	updated, errs := h.repo.BulkUpdate(c.Context(), validItems)
+
+	for _, e := range errs {
+		response.Errors = append(response.Errors, e)
+	}
+	if len(response.Errors) > 0 {
+		return c.Status(409).JSON(response)
+	}
+
+	for _, l := range updated {
+		response.Success = append(response.Success, l.ID)
+		go h.hub.Broadcast(ws.Message{
+			Type:    "load.updated",
+			Payload: l,
+		})
+	}
+
+	response.Message = fmt.Sprintf("Updated %d rows", len(updated))
+	return c.JSON(response)
 }

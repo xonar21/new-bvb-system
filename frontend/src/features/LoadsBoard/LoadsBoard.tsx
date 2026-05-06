@@ -18,7 +18,10 @@ import { OnlineUsersBar } from './OnlineUsersBar'
 import { FormatToolbar } from './FormatToolbar'
 import { RowResizeHandle } from './RowHeaderColumn'
 import { useSelectionStore } from '../../store/selectionStore'
+import { useClipboardStore } from '../../store/clipboardStore'
 import { useTableLayoutStore } from '../../store/tableLayoutStore'
+import { useClipboard } from './useClipboard'
+import { PasteErrorModal } from './PasteErrorModal'
 import type { BulkFormatCell, CellFormat, Load } from '../../types/Load'
 
 function useDebounce<T>(value: T, delay: number): T {
@@ -210,6 +213,50 @@ export function LoadsBoard() {
     [updateMutation],
   )
 
+  const { handleCopy, handlePaste } = useClipboard(loads ?? [])
+  const copyToast = useClipboardStore((s) => s.copyToast)
+  const isPasting = useClipboardStore((s) => s.isPasting)
+  const setCopyToast = useClipboardStore((s) => s.setCopyToast)
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      try {
+        // Don't intercept when editing inputs
+        const tag = (e.target as HTMLElement)?.tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+
+        if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+          e.preventDefault()
+          handleCopy()
+
+          // Auto-dismiss copy toast after 2s
+          setTimeout(() => {
+            const current = useClipboardStore.getState().copyToast
+            if (current && current.startsWith('Copied')) {
+              useClipboardStore.getState().setCopyToast(null)
+            }
+          }, 2000)
+        }
+
+        if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+          e.preventDefault()
+          handlePaste()
+        }
+
+        if (e.key === 'Escape') {
+          useSelectionStore.getState().clearSelection()
+          useClipboardStore.getState().setPasteErrors(null)
+          useClipboardStore.getState().setCopyToast(null)
+        }
+      } catch (err) {
+        console.error('Clipboard key handler error:', err)
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [handleCopy, handlePaste])
+
   const handleColumnResizeMouseDown = useCallback((e: React.MouseEvent, colId: string) => {
     e.preventDefault()
     e.stopPropagation()
@@ -374,6 +421,9 @@ export function LoadsBoard() {
               <option value={0}>All</option>
             </select>
           </label>
+          <span style={{ fontSize: '11px', color: '#999', userSelect: 'none' }}>
+            Ctrl+C / Ctrl+V
+          </span>
           <OnlineUsersBar />
         </div>
       </div>
@@ -616,6 +666,48 @@ export function LoadsBoard() {
           {toastMessage}
         </div>
       )}
+
+      {copyToast && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: '64px',
+            right: '24px',
+            padding: '10px 20px',
+            borderRadius: '6px',
+            color: '#fff',
+            fontSize: '14px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+            zIndex: 9999,
+            background: copyToast.startsWith('Copied') || copyToast.startsWith('Pasted') ? '#4caf50' : '#f44336',
+            transition: 'opacity 0.3s',
+          }}
+          onClick={() => setCopyToast(null)}
+        >
+          {copyToast}
+        </div>
+      )}
+
+      {isPasting && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: '104px',
+            right: '24px',
+            padding: '10px 20px',
+            borderRadius: '6px',
+            color: '#fff',
+            fontSize: '14px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+            zIndex: 9999,
+            background: '#4a90d9',
+          }}
+        >
+          Pasting...
+        </div>
+      )}
+
+      <PasteErrorModal />
     </div>
   )
 }

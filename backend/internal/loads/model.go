@@ -97,3 +97,24 @@ type BulkOrderRequest struct {
 type LoadsResponse struct {
 	Loads []Load `json:"loads"`
 }
+
+type BulkUpdateItem struct {
+	ID    int64                  `json:"id"`
+	Patch map[string]interface{} `json:"patch"`
+}
+
+type BulkUpdateRequest struct {
+	Updates []BulkUpdateItem `json:"updates"`
+}
+
+type BulkUpdateError struct {
+	ID     int64  `json:"id"`
+	Field  string `json:"field"`
+	Reason string `json:"reason"`
+}
+
+type BulkUpdateResponse struct {
+	Success  []int64           `json:"success"`
+	Errors   []BulkUpdateError `json:"errors"`
+	Message  string            `json:"message"`
+}

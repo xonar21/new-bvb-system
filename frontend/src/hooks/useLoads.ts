@@ -71,7 +71,7 @@ export function useUpdateLoad() {
               useUndoStore.getState().push({
                 loadId: id,
                 field,
-                oldValue: (load as Record<string, unknown>)[field],
+                oldValue: (load as unknown as Record<string, unknown>)[field],
                 newValue,
               })
               break

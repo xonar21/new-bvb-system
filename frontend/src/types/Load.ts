@@ -184,6 +184,23 @@ export interface LayoutLockAcquired {
   expires_at: string | null
 }
 
+export interface BulkUpdateItem {
+  id: number
+  patch: Record<string, unknown>
+}
+
+export interface BulkUpdateError {
+  id: number
+  field: string
+  reason: string
+}
+
+export interface BulkUpdateResponse {
+  success: number[]
+  errors: BulkUpdateError[]
+  message: string
+}
+
 export interface LayoutLockReleased {
   target_type: string
   target_name: string

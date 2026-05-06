@@ -354,3 +354,79 @@ func (r *Repository) BulkOrder(ctx context.Context, items []BulkOrderItem) error
 
 	return results.Close()
 }
+
+func (r *Repository) ExistsByGateCode(ctx context.Context, gateCode string) (bool, error) {
+	var exists bool
+	err := r.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM loads WHERE gate_code_col6 = $1)`, gateCode).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check gate_code exists: %w", err)
+	}
+	return exists, nil
+}
+
+func (r *Repository) BulkUpdate(ctx context.Context, items []BulkUpdateItem) ([]Load, []BulkUpdateError) {
+	var updated []Load
+	var errors []BulkUpdateError
+
+	batch := &pgx.Batch{}
+	for _, item := range items {
+		var sets []string
+		var args []interface{}
+		argIdx := 1
+
+		for field, val := range item.Patch {
+			sets = append(sets, fmt.Sprintf("%s = $%d", field, argIdx))
+			args = append(args, val)
+			argIdx++
+		}
+
+		if len(sets) == 0 {
+			continue
+		}
+
+		sets = append(sets, "updated_at = NOW()")
+		args = append(args, item.ID)
+
+		query := fmt.Sprintf(`UPDATE loads SET %s WHERE id = $%d
+			RETURNING id, pick_up_date_col1, commodity_col2, pickup_date_location_col3,
+				delivery_date_location_col4, assigned_user_col5, gate_code_col6,
+				rate_col7, rate_min, rate_max, is_bold, is_mcc, is_lock,
+				font_size, status, note_mcc, comments, order_number, cell_formats,
+				created_at, updated_at`,
+			strings.Join(sets, ", "), argIdx)
+
+		batch.Queue(query, args...)
+	}
+
+	if batch.Len() == 0 {
+		return updated, errors
+	}
+
+	results := r.db.SendBatch(ctx, batch)
+	defer results.Close()
+
+	for _, item := range items {
+		var l Load
+		err := results.QueryRow().Scan(
+			&l.ID, &l.PickUpDateCol1, &l.CommodityCol2,
+			&l.PickupDateLocationCol3, &l.DeliveryDateLocationCol4,
+			&l.AssignedUserCol5, &l.GateCodeCol6,
+			&l.RateCol7, &l.RateMin, &l.RateMax,
+			&l.IsBold, &l.IsMCC, &l.IsLock,
+			&l.FontSize, &l.Status, &l.NoteMCC, &l.Comments,
+			&l.OrderNumber, &l.CellFormats,
+			&l.CreatedAt, &l.UpdatedAt,
+		)
+		if err != nil {
+			errors = append(errors, BulkUpdateError{ID: item.ID, Field: "", Reason: err.Error()})
+			continue
+		}
+		updated = append(updated, l)
+	}
+
+	if err := results.Close(); err != nil {
+		errors = append(errors, BulkUpdateError{ID: 0, Field: "", Reason: fmt.Sprintf("batch close: %v", err)})
+	}
+
+	return updated, errors
+}
