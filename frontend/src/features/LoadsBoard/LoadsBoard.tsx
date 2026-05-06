@@ -390,6 +390,7 @@ export function LoadsBoard() {
                       {{ asc: ' ▲', desc: ' ▼' }[header.column.getIsSorted() as string] ?? ''}
                       <div
                         onMouseDown={(e) => handleColumnResizeMouseDown(e, colId)}
+                        onClick={(e) => e.stopPropagation()}
                         style={{
                           position: 'absolute',
                           top: 0,
