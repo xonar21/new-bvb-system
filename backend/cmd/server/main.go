@@ -18,6 +18,7 @@ import (
 	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/gofiber/fiber/v2/middleware/logger"
 )
 
 func main() {
@@ -31,7 +32,11 @@ func main() {
 
 	db.Migrate(pgPool)
 
-	wsHub := ws.NewHub()
+	// loadsRepo is created before the hub so it can be passed as the CellWriter
+	// for WS-driven cell persistence (cell.update / cell.bulk-update messages).
+	loadsRepo := loads.NewRepository(pgPool)
+
+	wsHub := ws.NewHub(loadsRepo)
 	go wsHub.Run()
 
 	var sheetSync *sheets.SheetsSync
@@ -83,6 +88,8 @@ func main() {
 		WriteTimeout: 10 * time.Second,
 	})
 
+	app.Use(logger.New())
+
 	app.Use(cors.New(cors.Config{
 		AllowOrigins:     joinStrings(cfg.CORSOrigins...),
 		AllowMethods:     "GET,POST,PUT,PATCH,DELETE,OPTIONS",
@@ -92,7 +99,6 @@ func main() {
 
 	authMW := auth.NewMiddleware(cfg.JWTSecret)
 
-	loadsRepo := loads.NewRepository(pgPool)
 	loadsHandler := loads.NewHandler(loadsRepo, wsHub)
 
 	api := app.Group("/api")

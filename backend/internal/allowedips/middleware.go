@@ -66,6 +66,11 @@ func (m *IPMiddleware) IsAllowed(c *fiber.Ctx) bool {
 
 	clientIP := getClientIP(c)
 
+	// Allow all if no IPs are configured
+	if len(allowed) == 0 {
+		return true
+	}
+
 	for _, ip := range allowed {
 		if clientIP == ip {
 			return true
@@ -93,6 +98,11 @@ func (m *IPMiddleware) Handler() fiber.Handler {
 		}
 
 		clientIP := getClientIP(c)
+
+		// Allow all if no IPs are configured
+		if len(allowed) == 0 {
+			return c.Next()
+		}
 
 		for _, ip := range allowed {
 			if clientIP == ip {

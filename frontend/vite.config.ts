@@ -2,6 +2,14 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
+  optimizeDeps: {
+    include: ['@fortune-sheet/react'],
+  },
+  build: {
+    commonjsOptions: {
+      include: [/@fortune-sheet/, /node_modules/],
+    },
+  },
   plugins: [react()],
   server: {
     port: 5173,
@@ -22,6 +30,7 @@ export default defineConfig({
         changeOrigin: true,
         xfwd: true,
       },
+
     },
   },
 })

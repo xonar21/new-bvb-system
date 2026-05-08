@@ -21,7 +21,10 @@ func NewRepository(db *pgxpool.Pool) *Repository {
 func (r *Repository) List(ctx context.Context, filters *Filters) ([]Load, error) {
 	query := `SELECT id, pick_up_date_col1, commodity_col2, pickup_date_location_col3,
 		delivery_date_location_col4, assigned_user_col5, gate_code_col6,
-		rate_col7, rate_min, rate_max, is_bold, is_mcc, is_lock,
+		rate_col7, rate_min, rate_max,
+		COALESCE(is_bold, false) AS is_bold,
+		COALESCE(is_mcc, false)  AS is_mcc,
+		COALESCE(is_lock, false) AS is_lock,
 		font_size, status, note_mcc, comments, order_number, cell_formats,
 		created_at, updated_at
 		FROM loads WHERE 1=1`
@@ -102,7 +105,10 @@ func (r *Repository) List(ctx context.Context, filters *Filters) ([]Load, error)
 func (r *Repository) Get(ctx context.Context, id int64) (*Load, error) {
 	query := `SELECT id, pick_up_date_col1, commodity_col2, pickup_date_location_col3,
 		delivery_date_location_col4, assigned_user_col5, gate_code_col6,
-		rate_col7, rate_min, rate_max, is_bold, is_mcc, is_lock,
+		rate_col7, rate_min, rate_max,
+		COALESCE(is_bold, false) AS is_bold,
+		COALESCE(is_mcc, false)  AS is_mcc,
+		COALESCE(is_lock, false) AS is_lock,
 		font_size, status, note_mcc, comments, order_number, cell_formats,
 		created_at, updated_at
 		FROM loads WHERE id = $1`
@@ -128,7 +134,7 @@ func (r *Repository) Get(ctx context.Context, id int64) (*Load, error) {
 	return &l, nil
 }
 
-func (r *Repository) Create(ctx context.Context, req UpdateRequest) (*Load, error) {
+func (r *Repository) Create(ctx context.Context, req CreateRequest) (*Load, error) {
 	query := `INSERT INTO loads (
 		pick_up_date_col1, commodity_col2, pickup_date_location_col3,
 		delivery_date_location_col4, assigned_user_col5, gate_code_col6,
@@ -138,7 +144,10 @@ func (r *Repository) Create(ctx context.Context, req UpdateRequest) (*Load, erro
 	) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), NOW())
 	RETURNING id, pick_up_date_col1, commodity_col2, pickup_date_location_col3,
 		delivery_date_location_col4, assigned_user_col5, gate_code_col6,
-		rate_col7, rate_min, rate_max, is_bold, is_mcc, is_lock,
+		rate_col7, rate_min, rate_max,
+		COALESCE(is_bold, false) AS is_bold,
+		COALESCE(is_mcc, false)  AS is_mcc,
+		COALESCE(is_lock, false) AS is_lock,
 		font_size, status, note_mcc, comments, order_number, cell_formats,
 		created_at, updated_at`
 
@@ -177,28 +186,55 @@ func (r *Repository) Update(ctx context.Context, id int64, req UpdateRequest) (*
 		argIdx++
 	}
 
-	if req.PickUpDateCol1 != nil { addField("pick_up_date_col1", *req.PickUpDateCol1) }
-	if req.CommodityCol2 != nil { addField("commodity_col2", *req.CommodityCol2) }
-	if req.PickupDateLocationCol3 != nil { addField("pickup_date_location_col3", *req.PickupDateLocationCol3) }
-	if req.DeliveryDateLocationCol4 != nil { addField("delivery_date_location_col4", *req.DeliveryDateLocationCol4) }
-	if req.AssignedUserCol5 != nil { addField("assigned_user_col5", *req.AssignedUserCol5) }
-	if req.RateCol7 != nil { addField("rate_col7", *req.RateCol7) }
-	if req.RateMin != nil { addField("rate_min", *req.RateMin) }
-	if req.RateMax != nil { addField("rate_max", *req.RateMax) }
-	if req.IsBold != nil { addField("is_bold", *req.IsBold) }
-	if req.IsLock != nil { addField("is_lock", *req.IsLock) }
-	if req.FontSize != nil { addField("font_size", *req.FontSize) }
-	if req.Status != nil { addField("status", *req.Status) }
-	if req.Comments != nil { addField("comments", *req.Comments) }
-	if req.OrderNumber != nil { addField("order_number", *req.OrderNumber) }
-	if req.CellFormats != nil {
+	if v, ok := req.PickUpDateCol1.Get(); ok { addField("pick_up_date_col1", v) }
+	if v, ok := req.CommodityCol2.Get(); ok { addField("commodity_col2", v) }
+	if v, ok := req.PickupDateLocationCol3.Get(); ok { addField("pickup_date_location_col3", v) }
+	if v, ok := req.DeliveryDateLocationCol4.Get(); ok { addField("delivery_date_location_col4", v) }
+	if v, ok := req.AssignedUserCol5.Get(); ok { addField("assigned_user_col5", v) }
+	if v, ok := req.GateCodeCol6.Get(); ok { addField("gate_code_col6", v) }
+	if v, ok := req.RateCol7.Get(); ok { addField("rate_col7", v) }
+	if v, ok := req.RateMin.Get(); ok { addField("rate_min", v) }
+	if v, ok := req.RateMax.Get(); ok { addField("rate_max", v) }
+	if v, ok := req.IsBold.Get(); ok {
+		if v == nil {
+			v = false
+		}
+		addField("is_bold", v)
+	}
+	if v, ok := req.IsMCC.Get(); ok {
+		if v == nil {
+			v = false
+		}
+		addField("is_mcc", v)
+	}
+	if v, ok := req.IsLock.Get(); ok {
+		if v == nil {
+			v = false
+		}
+		addField("is_lock", v)
+	}
+	if v, ok := req.FontSize.Get(); ok { addField("font_size", v) }
+	if v, ok := req.Status.Get(); ok { addField("status", v) }
+	if v, ok := req.NoteMCC.Get(); ok { addField("note_mcc", v) }
+	if v, ok := req.Comments.Get(); ok { addField("comments", v) }
+	if v, ok := req.OrderNumber.Get(); ok { addField("order_number", v) }
+	if req.CellFormats.Set {
 		sets = append(sets, fmt.Sprintf("cell_formats = $%d::jsonb", argIdx))
-		args = append(args, string(*req.CellFormats))
+		if req.CellFormats.Value == nil {
+			args = append(args, nil)
+		} else {
+			args = append(args, string(*req.CellFormats.Value))
+		}
 		argIdx++
 	}
 
 	if len(sets) == 0 {
 		return r.Get(ctx, id)
+	}
+
+	// Protect manual edits from Google Sheets sync unless the caller explicitly sets is_lock.
+	if !req.IsLock.Set {
+		sets = append(sets, "is_lock = true")
 	}
 
 	sets = append(sets, "updated_at = NOW()")
@@ -207,7 +243,10 @@ func (r *Repository) Update(ctx context.Context, id int64, req UpdateRequest) (*
 	query := fmt.Sprintf(`UPDATE loads SET %s WHERE id = $%d
 		RETURNING id, pick_up_date_col1, commodity_col2, pickup_date_location_col3,
 			delivery_date_location_col4, assigned_user_col5, gate_code_col6,
-			rate_col7, rate_min, rate_max, is_bold, is_mcc, is_lock,
+			rate_col7, rate_min, rate_max,
+			COALESCE(is_bold, false) AS is_bold,
+			COALESCE(is_mcc, false)  AS is_mcc,
+			COALESCE(is_lock, false) AS is_lock,
 			font_size, status, note_mcc, comments, order_number, cell_formats,
 			created_at, updated_at`,
 		strings.Join(sets, ", "), argIdx)
@@ -245,7 +284,10 @@ func (r *Repository) UpdateCellFormat(ctx context.Context, id int64, column stri
 		WHERE id = $3
 		RETURNING id, pick_up_date_col1, commodity_col2, pickup_date_location_col3,
 			delivery_date_location_col4, assigned_user_col5, gate_code_col6,
-			rate_col7, rate_min, rate_max, is_bold, is_mcc, is_lock,
+			rate_col7, rate_min, rate_max,
+			COALESCE(is_bold, false) AS is_bold,
+			COALESCE(is_mcc, false)  AS is_mcc,
+			COALESCE(is_lock, false) AS is_lock,
 			font_size, status, note_mcc, comments, order_number, cell_formats,
 			created_at, updated_at`
 
@@ -297,7 +339,10 @@ func (r *Repository) BulkFormat(ctx context.Context, cells []BulkFormatCell) ([]
 			WHERE id = $3
 			RETURNING id, pick_up_date_col1, commodity_col2, pickup_date_location_col3,
 				delivery_date_location_col4, assigned_user_col5, gate_code_col6,
-				rate_col7, rate_min, rate_max, is_bold, is_mcc, is_lock,
+				rate_col7, rate_min, rate_max,
+				COALESCE(is_bold, false) AS is_bold,
+				COALESCE(is_mcc, false)  AS is_mcc,
+				COALESCE(is_lock, false) AS is_lock,
 				font_size, status, note_mcc, comments, order_number, cell_formats,
 				created_at, updated_at`,
 			[]string{u.column}, string(u.format), u.id)
@@ -334,6 +379,69 @@ func (r *Repository) BulkFormat(ctx context.Context, cells []BulkFormatCell) ([]
 	}
 
 	return result, nil
+}
+
+// validCellFields is the allowlist for WS-driven cell writes (prevents SQL injection).
+var validCellFields = map[string]bool{
+	"pick_up_date_col1":           true,
+	"commodity_col2":              true,
+	"pickup_date_location_col3":   true,
+	"delivery_date_location_col4": true,
+	"assigned_user_col5":          true,
+	"gate_code_col6":              true,
+	"rate_col7":                   true,
+	"rate_min":                    true,
+	"rate_max":                    true,
+	"is_bold":                     true,
+	"is_mcc":                      true,
+	"is_lock":                     true,
+	"font_size":                   true,
+	"status":                      true,
+	"note_mcc":                    true,
+	"comments":                    true,
+	"order_number":                true,
+}
+
+// UpdateCellField updates a single named column in the loads table.
+// Implements ws.CellWriter. The field name is validated against the allowlist.
+func (r *Repository) UpdateCellField(ctx context.Context, loadID int64, field string, value any) error {
+	if !validCellFields[field] {
+		return fmt.Errorf("UpdateCellField: invalid field %q", field)
+	}
+	// Any manual edit should protect the row from being overwritten by Google Sheets sync.
+	// Exception: toggling is_lock itself should not force re-lock.
+	query := fmt.Sprintf(`UPDATE loads SET %s = $1, updated_at = NOW() WHERE id = $2`, field)
+	args := []any{value, loadID}
+	if field != "is_lock" {
+		query = fmt.Sprintf(`UPDATE loads SET %s = $1, is_lock = true, updated_at = NOW() WHERE id = $2`, field)
+	}
+
+	_, err := r.db.Exec(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("UpdateCellField (load=%d field=%s): %w", loadID, field, err)
+	}
+	return nil
+}
+
+// UpdateCellStyle merges a style object into the cell_formats JSONB for the given field key.
+// Implements ws.CellWriter. Uses jsonb_set so other fields in cell_formats are preserved.
+func (r *Repository) UpdateCellStyle(ctx context.Context, loadID int64, field string, style any) error {
+	styleJSON, err := json.Marshal(style)
+	if err != nil {
+		return fmt.Errorf("UpdateCellStyle marshal: %w", err)
+	}
+	_, err = r.db.Exec(ctx,
+		`UPDATE loads
+		 SET cell_formats = jsonb_set(COALESCE(cell_formats, '{}'::jsonb), $1::text[], $2::jsonb, true),
+		     is_lock = true,
+		     updated_at = NOW()
+		 WHERE id = $3`,
+		[]string{field}, json.RawMessage(styleJSON), loadID,
+	)
+	if err != nil {
+		return fmt.Errorf("UpdateCellStyle (load=%d field=%s): %w", loadID, field, err)
+	}
+	return nil
 }
 
 func (r *Repository) BulkOrder(ctx context.Context, items []BulkOrderItem) error {

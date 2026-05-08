@@ -95,8 +95,29 @@ export interface LoginResponse {
 }
 
 export interface WSMessage {
-  type: 'load.created' | 'load.updated' | 'load.deleted' | 'load.order-updated' | 'presence' | 'cell.focus' | 'ip.restriction-changed' | 'layout.column-width-changed' | 'layout.row-height-changed' | 'layout.lock-acquired' | 'layout.lock-released' | 'layout.reset' | 'loads.synced' | 'sync.error'
+  type: 'load.created' | 'load.updated' | 'load.deleted' | 'load.order-updated' | 'presence' | 'cell.focus' | 'focus.snapshot' | 'ip.restriction-changed' | 'layout.column-width-changed' | 'layout.row-height-changed' | 'layout.lock-acquired' | 'layout.lock-released' | 'layout.reset' | 'loads.synced' | 'sync.error' | 'sheet.op' | 'cell.update' | 'cell.bulk-update'
   payload: unknown
+}
+
+/** Payload received from other clients via cell.update WS message. */
+export interface CellUpdateWSPayload {
+  load_id: number
+  field: string       // DB column name, e.g. "pick_up_date_col1"
+  value?: unknown
+  style?: Record<string, unknown>
+  user_id?: number
+  user_name?: string
+}
+
+/** Payload received from other clients via cell.bulk-update WS message. */
+export interface CellBulkUpdateWSPayload {
+  updates: Array<{
+    load_id: number
+    field: string
+    value?: unknown
+  }>
+  user_id?: number
+  user_name?: string
 }
 
 export interface CellFocusPayload {

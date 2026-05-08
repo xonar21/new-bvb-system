@@ -6,7 +6,7 @@ import { useIpCheck } from './hooks/useIpCheck'
 import { LoginPage } from './components/LoginPage'
 import { AccessDeniedPage } from './components/AccessDeniedPage'
 import { Layout } from './components/Layout'
-import { LoadsBoard } from './features/LoadsBoard/LoadsBoard'
+import { LuckysheetBoard } from './features/LoadsBoard/LuckysheetBoard'
 import { UsersManagement } from './features/UsersManagement/UsersManagement'
 import { AllowedIps } from './features/AllowedIps/AllowedIps'
 
@@ -69,7 +69,7 @@ function AppContent() {
         return <AllowedIps />
       case 'loads':
       default:
-        return <LoadsBoard />
+        return <LuckysheetBoard />
     }
   }
 

@@ -3,7 +3,14 @@ package loads
 import "errors"
 
 func ValidateUpdate(req *UpdateRequest) error {
-	if req.GateCodeCol6 != nil && *req.GateCodeCol6 == "" {
+	if req.GateCodeCol6.Set && req.GateCodeCol6.Value != nil && *req.GateCodeCol6.Value == "" {
+		return errors.New("gate_code_col6 cannot be empty")
+	}
+	return nil
+}
+
+func ValidateCreate(req *CreateRequest) error {
+	if req.GateCodeCol6 == "" {
 		return errors.New("gate_code_col6 cannot be empty")
 	}
 	return nil

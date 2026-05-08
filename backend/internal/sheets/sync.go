@@ -23,7 +23,7 @@ const (
 	greenRowBlue   = 0.490
 	colorTolerance = 0.05
 
-	sheetRange = "A2:I1000"
+	sheetRange = "A2:K1000"
 	batchSize  = 100
 	maxRetries = 3
 	retryDelay = 5 * time.Second
@@ -261,8 +261,8 @@ func (s *SheetsSync) parseRowData(cells []*sheets.CellData) (*RawLoad, bool) {
 		return nil
 	}
 
-	parsedDate := getDate(0)
-	gateCode := getString(5)
+	parsedDate := getDate(1)
+	gateCode := getString(6)
 
 	if parsedDate == nil || gateCode == "" {
 		return nil, false
@@ -277,13 +277,14 @@ func (s *SheetsSync) parseRowData(cells []*sheets.CellData) (*RawLoad, bool) {
 
 	isGreen := s.isGreenRow(cells)
 
-	rate := getInt(6)
+	rate := getInt(7)
 
 	colKeys := []string{"col1", "col2", "col3", "col4", "col5", "col6", "col7"}
 	formats := RowFormats{}
 	for i, key := range colKeys {
-		if i < len(cells) {
-			if cf := extractCellFormat(cells[i]); cf != nil {
+		cellIdx := i + 1
+		if cellIdx < len(cells) {
+			if cf := extractCellFormat(cells[cellIdx]); cf != nil {
 				formats[key] = *cf
 			}
 		}
@@ -291,14 +292,14 @@ func (s *SheetsSync) parseRowData(cells []*sheets.CellData) (*RawLoad, bool) {
 
 	load := &RawLoad{
 		PickUpDate:       parsedDate.Format("2006-01-02"),
-		Commodity:        getString(1),
-		PickupLocation:   getString(2),
-		DeliveryLocation: getString(3),
-		AssignedUser:     getString(4),
+		Commodity:        getString(2),
+		PickupLocation:   getString(3),
+		DeliveryLocation: getString(4),
+		AssignedUser:     getString(5),
 		GateCode:         gateCode,
 		Rate:             rate,
-		Hot:              getString(7),
-		Notes:            getString(8),
+		Hot:              getString(8),
+		Notes:            getString(9),
 		ParsedPickUpDate: *parsedDate,
 		IsGreenRow:       isGreen,
 		Formats:          formats,
@@ -308,8 +309,8 @@ func (s *SheetsSync) parseRowData(cells []*sheets.CellData) (*RawLoad, bool) {
 }
 
 func (s *SheetsSync) isGreenRow(cells []*sheets.CellData) bool {
-	if len(cells) == 0 || cells[0] == nil || cells[0].EffectiveFormat == nil ||
-		cells[0].EffectiveFormat.BackgroundColor == nil {
+	if len(cells) < 2 || cells[1] == nil || cells[1].EffectiveFormat == nil ||
+		cells[1].EffectiveFormat.BackgroundColor == nil {
 		return false
 	}
 
@@ -433,17 +434,17 @@ func (s *SheetsSync) batchUpsert(ctx context.Context, rawLoads []RawLoad) (inser
 				cell_formats, created_at, updated_at
 			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,NOW(),NOW())
 			ON CONFLICT (gate_code_col6) DO UPDATE SET
-				pick_up_date_col1           = EXCLUDED.pick_up_date_col1,
-				commodity_col2              = EXCLUDED.commodity_col2,
-				pickup_date_location_col3   = EXCLUDED.pickup_date_location_col3,
-				delivery_date_location_col4 = EXCLUDED.delivery_date_location_col4,
-				assigned_user_col5          = EXCLUDED.assigned_user_col5,
-				rate_col7                   = EXCLUDED.rate_col7,
-				rate_min                    = EXCLUDED.rate_min,
-				rate_max                    = EXCLUDED.rate_max,
-				is_bold                     = EXCLUDED.is_bold,
-				is_mcc                      = EXCLUDED.is_mcc,
-				note_mcc                    = EXCLUDED.note_mcc,
+				pick_up_date_col1           = CASE WHEN loads.is_lock THEN loads.pick_up_date_col1           ELSE EXCLUDED.pick_up_date_col1           END,
+				commodity_col2              = CASE WHEN loads.is_lock THEN loads.commodity_col2              ELSE EXCLUDED.commodity_col2              END,
+				pickup_date_location_col3   = CASE WHEN loads.is_lock THEN loads.pickup_date_location_col3   ELSE EXCLUDED.pickup_date_location_col3   END,
+				delivery_date_location_col4 = CASE WHEN loads.is_lock THEN loads.delivery_date_location_col4 ELSE EXCLUDED.delivery_date_location_col4 END,
+				assigned_user_col5          = CASE WHEN loads.is_lock THEN loads.assigned_user_col5          ELSE EXCLUDED.assigned_user_col5          END,
+				rate_col7                   = CASE WHEN loads.is_lock THEN loads.rate_col7                   ELSE EXCLUDED.rate_col7                   END,
+				rate_min                    = CASE WHEN loads.is_lock THEN loads.rate_min                    ELSE EXCLUDED.rate_min                    END,
+				rate_max                    = CASE WHEN loads.is_lock THEN loads.rate_max                    ELSE EXCLUDED.rate_max                    END,
+				is_bold                     = CASE WHEN loads.is_lock THEN loads.is_bold                     ELSE EXCLUDED.is_bold                     END,
+				is_mcc                      = CASE WHEN loads.is_lock THEN loads.is_mcc                      ELSE EXCLUDED.is_mcc                      END,
+				note_mcc                    = CASE WHEN loads.is_lock THEN loads.note_mcc                    ELSE EXCLUDED.note_mcc                    END,
 				updated_at                  = NOW()
 			RETURNING (xmax = 0) AS was_inserted
 		`,

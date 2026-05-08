@@ -4,6 +4,7 @@ import type { Load } from '../../types/Load'
 import { useWSStore } from '../../store/wsStore'
 import { useAuthStore } from '../../store/authStore'
 import { useSelectionStore, useIsCellSelected } from '../../store/selectionStore'
+import { useCellStore, COLUMN_TO_FIELD } from '../../store/cellStore'
 
 const USER_COLORS = [
   '#4a90d9', '#e67e22', '#2ecc71', '#9b59b6',
@@ -68,15 +69,23 @@ function getCellStyle(load: Load, colKey?: string): React.CSSProperties {
 
 function LoadCellInner({ cell, onUpdate, colKey, onCellSelect, fillHeight }: LoadCellProps) {
   const [editing, setEditing] = useState(false)
-  const [value, setValue] = useState(String(cell.getValue() ?? ''))
   const inputRef = useRef<HTMLInputElement>(null)
 
   const currentUser = useAuthStore((s) => s.user)
   const sendMessage = useWSStore((s) => s.sendMessage)
 
   const loadId = cell.row.original.id
-  const field = cell.column.id
+  const field = cell.column.id          // TanStack column id (e.g. "pick_up_date")
   const focusKey = `${loadId}:${field}`
+
+  // ── cellStore subscription: fine-grained, only this cell re-renders ──────
+  // Falls back to cell.getValue() if cellStore hasn't been initialised yet.
+  const storeValue = useCellStore((s) => s.cells[focusKey]?.value)
+  const storeStyle = useCellStore((s) => s.cells[focusKey]?.style)
+  const displayValue = storeValue ?? String(cell.getValue() ?? '')
+
+  // Local edit buffer — initialised from displayValue when edit starts.
+  const [value, setValue] = useState(displayValue)
 
   // Per-cell subscriptions — only re-renders when THIS cell's focus/selection changes
   const focusInfo = useWSStore((s) => s.focusedCells[focusKey])
@@ -93,11 +102,13 @@ function LoadCellInner({ cell, onUpdate, colKey, onCellSelect, fillHeight }: Loa
   const isMCC = cell.row.original.is_mcc
   const isGateCode = cell.column.id === 'gate_code'
 
+  // Sync local buffer when displayValue changes (WS update, load.updated, etc.)
+  // but only when not currently editing.
   useEffect(() => {
     if (!editing) {
-      setValue(String(cell.getValue() ?? ''))
+      setValue(displayValue)
     }
-  }, [cell.getValue(), editing])
+  }, [displayValue, editing])
 
   useEffect(() => {
     if (editing && inputRef.current) {
@@ -166,13 +177,32 @@ function LoadCellInner({ cell, onUpdate, colKey, onCellSelect, fillHeight }: Loa
     loadMyFocusRef.current = null
     sendFocus('blur')
     useWSStore.getState().removeCellFocus(loadId, field)
+
     const newVal = value.trim()
-    const oldVal = String(cell.getValue() ?? '').trim()
-    if (newVal !== oldVal) {
-      const parsed = cell.column.id === 'rate' ? (Number(newVal) || null) : newVal || null
-      onUpdate?.(cell.row.original.id, cell.column.id, parsed)
+    const oldVal = displayValue.trim()
+    if (newVal === oldVal) return
+
+    const isNumeric = ['rate', 'rate_min', 'rate_max', 'font_size', 'order_number'].includes(field)
+    const parsed = isNumeric ? (Number(newVal) || null) : newVal || null
+
+    // 1. Optimistic update in cellStore — instant, no round-trip.
+    const colId = colKey ?? field
+    useCellStore.getState().setCell(loadId, colId, {
+      value: parsed === null ? '' : String(parsed),
+    })
+
+    // 2. Forward via WebSocket — backend broadcasts to others + async DB write.
+    const dbField = COLUMN_TO_FIELD[field]
+    if (dbField && sendMessage) {
+      sendMessage(JSON.stringify({
+        type: 'cell.update',
+        payload: { load_id: loadId, field: dbField, value: parsed },
+      }))
     }
-  }, [value, cell, onUpdate, sendFocus, loadId, field])
+
+    // 3. Backward compat: notify parent (e.g. for REST-based fallback if WS is down).
+    onUpdate?.(cell.row.original.id, cell.column.id, parsed)
+  }, [value, displayValue, cell, onUpdate, sendFocus, loadId, field, colKey, sendMessage])
 
   const handleBlur = useCallback(() => {
     if (!editing) return
@@ -192,11 +222,19 @@ function LoadCellInner({ cell, onUpdate, colKey, onCellSelect, fillHeight }: Loa
     [cell],
   )
 
-  const cellStyle = useMemo(
-    () => getCellStyle(cell.row.original, colKey),
+  const cellStyle = useMemo(() => {
+    const base = getCellStyle(cell.row.original, colKey)
+    // Overlay optimistic style from cellStore (takes precedence over DB data).
+    if (storeStyle) {
+      if (storeStyle.bg) base.backgroundColor = storeStyle.bg
+      if (storeStyle.fc) base.color = storeStyle.fc
+      if (storeStyle.bold !== undefined) base.fontWeight = storeStyle.bold ? 700 : 400
+      if (storeStyle.italic !== undefined) base.fontStyle = storeStyle.italic ? 'italic' : undefined
+      if (storeStyle.fontSize) base.fontSize = `${storeStyle.fontSize}pt`
+    }
+    return base
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [cell.row.original.cell_formats, colKey, cell.row.original.is_bold],
-  )
+  }, [cell.row.original.cell_formats, colKey, cell.row.original.is_bold, storeStyle])
 
   const selectionBg = isSelected
     ? (formatPainterActive

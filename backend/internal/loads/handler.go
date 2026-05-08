@@ -1,6 +1,7 @@
 package loads
 
 import (
+	"log"
 	"strconv"
 
 	"bvb-datatable/internal/ws"
@@ -71,12 +72,12 @@ func (h *Handler) Show(c *fiber.Ctx) error {
 }
 
 func (h *Handler) Store(c *fiber.Ctx) error {
-	var req UpdateRequest
+	var req CreateRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	if err := ValidateUpdate(&req); err != nil {
+	if err := ValidateCreate(&req); err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 	}
 
@@ -92,6 +93,12 @@ func (h *Handler) Update(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid id"})
+	}
+
+	// Helpful for debugging Fortune Sheet persistence issues:
+	// many updates come as small JSON patches and may contain explicit nulls.
+	if body := c.Body(); len(body) > 0 {
+		log.Printf("PUT /api/loads/%d body=%s", id, string(body))
 	}
 
 	var req UpdateRequest
@@ -111,7 +118,7 @@ func (h *Handler) Update(c *fiber.Ctx) error {
 		return c.Status(404).JSON(fiber.Map{"error": "not found"})
 	}
 
-	go h.hub.Broadcast(ws.Message{
+	h.hub.Broadcast(ws.Message{
 		Type:    "load.updated",
 		Payload: load,
 	})
@@ -137,7 +144,7 @@ func (h *Handler) Delete(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	go h.hub.Broadcast(ws.Message{
+	h.hub.Broadcast(ws.Message{
 		Type:    "load.deleted",
 		Payload: fiber.Map{"id": id},
 	})
@@ -168,7 +175,7 @@ func (h *Handler) UpdateFormat(c *fiber.Ctx) error {
 		return c.Status(404).JSON(fiber.Map{"error": "not found"})
 	}
 
-	go h.hub.Broadcast(ws.Message{
+	h.hub.Broadcast(ws.Message{
 		Type:    "load.updated",
 		Payload: load,
 	})
@@ -187,8 +194,9 @@ func (h *Handler) BulkFormat(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	// Broadcast each updated load. Broadcast() is O(1) — just queues to a buffered channel.
 	for _, load := range loads {
-		go h.hub.Broadcast(ws.Message{
+		h.hub.Broadcast(ws.Message{
 			Type:    "load.updated",
 			Payload: load,
 		})
@@ -211,7 +219,7 @@ func (h *Handler) BulkOrder(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	go h.hub.Broadcast(ws.Message{
+	h.hub.Broadcast(ws.Message{
 		Type:    "load.order-updated",
 		Payload: req.Items,
 	})

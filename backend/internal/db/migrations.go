@@ -127,6 +127,29 @@ func Migrate(pool *pgxpool.Pool) {
 		log.Fatal("Migration failed:", err)
 	}
 
+	// Backfill + harden boolean columns (older data may contain NULLs).
+	// This prevents pgx scan errors into non-pointer bool fields.
+	_, err = pool.Exec(ctx, `
+		UPDATE loads SET
+			is_bold = COALESCE(is_bold, false),
+			is_mcc  = COALESCE(is_mcc, false),
+			is_lock = COALESCE(is_lock, false)
+		WHERE is_bold IS NULL OR is_mcc IS NULL OR is_lock IS NULL;
+
+		ALTER TABLE loads
+			ALTER COLUMN is_bold SET DEFAULT false,
+			ALTER COLUMN is_mcc  SET DEFAULT false,
+			ALTER COLUMN is_lock SET DEFAULT false;
+
+		ALTER TABLE loads
+			ALTER COLUMN is_bold SET NOT NULL,
+			ALTER COLUMN is_mcc  SET NOT NULL,
+			ALTER COLUMN is_lock SET NOT NULL;
+	`)
+	if err != nil {
+		log.Fatal("Migration backfill failed:", err)
+	}
+
 	log.Println("Database migration completed")
 	seedUsers(pool, ctx)
 }

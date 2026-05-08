@@ -16,6 +16,8 @@ import { OnlineUsersBar } from './OnlineUsersBar'
 import { FormatToolbar } from './FormatToolbar'
 import { RowResizeHandle } from './RowHeaderColumn'
 import { useSelectionStore } from '../../store/selectionStore'
+import { useCellStore, COLUMN_TO_FIELD, EDITABLE_COLS } from '../../store/cellStore'
+import { useWSStore } from '../../store/wsStore'
 import type { BulkFormatCell, CellFormat, Load } from '../../types/Load'
 
 function useDebounce<T>(value: T, delay: number): T {
@@ -28,16 +30,6 @@ function useDebounce<T>(value: T, delay: number): T {
 }
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const
-
-const COLUMN_TO_FIELD: Record<string, string> = {
-  pick_up_date: 'pick_up_date_col1',
-  commodity: 'commodity_col2',
-  pickup_location: 'pickup_date_location_col3',
-  delivery_location: 'delivery_date_location_col4',
-  assigned_user: 'assigned_user_col5',
-  rate: 'rate_col7',
-  notes: 'note_mcc',
-}
 
 function getPageNumbers(current: number, total: number): (number | 'ellipsis')[] {
   if (total <= 7) {
@@ -91,6 +83,7 @@ export function LoadsBoard() {
 
   const { data: loads, isLoading, isError, error } = useLoads(filters)
   const updateMutation = useUpdateLoad()
+  const sendMessage = useWSStore((s) => s.sendMessage)
 
   const {
     getColumnWidth,
@@ -112,6 +105,69 @@ export function LoadsBoard() {
   const setOrderedLoadIds = useSelectionStore((s) => s.setOrderedLoadIds)
   const endDrag = useSelectionStore((s) => s.endDrag)
   const deactivateFormatPainter = useSelectionStore((s) => s.deactivateFormatPainter)
+
+  // ── Initialise cellStore whenever loads are fetched/refreshed ───────────────
+  // Only re-initialise when the set of row IDs changes (new row added/deleted)
+  // or on first mount. Individual cell edits are handled via WS cell.update.
+  const loadsLengthRef = useRef(0)
+  useEffect(() => {
+    if (!loads) return
+    // Always init on first load; after that, only if row count changes.
+    if (loads.length !== loadsLengthRef.current || loadsLengthRef.current === 0) {
+      loadsLengthRef.current = loads.length
+      useCellStore.getState().initFromLoads(loads)
+    }
+  }, [loads])
+
+  // ── TSV Paste handler ─────────────────────────────────────────────────────
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const text = e.clipboardData.getData('text/plain')
+    if (!text.includes('\t')) return // not a TSV paste, let browser handle it
+    e.preventDefault()
+
+    const { dragStart, orderedLoadIds } = useSelectionStore.getState()
+    if (!dragStart) return
+
+    const startRowIdx = orderedLoadIds.indexOf(dragStart.loadId)
+    const startColIdx = EDITABLE_COLS.indexOf(dragStart.col as typeof EDITABLE_COLS[number])
+    if (startRowIdx === -1 || startColIdx === -1) return
+
+    const rows = text.trimEnd().split('\n').map((r) => r.split('\t'))
+
+    const cellUpdates: Array<{ loadId: number; colId: string; patch: { value: string } }> = []
+    const wsUpdates: Array<{ load_id: number; field: string; value: string }> = []
+
+    for (let r = 0; r < rows.length; r++) {
+      const rowIdx = startRowIdx + r
+      if (rowIdx >= orderedLoadIds.length) break
+      const loadId = orderedLoadIds[rowIdx]
+
+      for (let c = 0; c < rows[r].length; c++) {
+        const colIdx = startColIdx + c
+        if (colIdx >= EDITABLE_COLS.length) break
+        const colId = EDITABLE_COLS[colIdx]
+        const field = COLUMN_TO_FIELD[colId]
+        if (!field) continue
+        const cellValue = rows[r][c].trim()
+
+        cellUpdates.push({ loadId, colId, patch: { value: cellValue } })
+        wsUpdates.push({ load_id: loadId, field, value: cellValue })
+      }
+    }
+
+    if (cellUpdates.length === 0) return
+
+    // Optimistic: update cellStore immediately (no re-render cascade)
+    useCellStore.getState().bulkSetCells(cellUpdates)
+
+    // Send to backend via WS — broadcasts to others + async DB write
+    if (sendMessage) {
+      sendMessage(JSON.stringify({
+        type: 'cell.bulk-update',
+        payload: { updates: wsUpdates },
+      }))
+    }
+  }, [sendMessage])
 
   // Sync ordered load IDs to selection store
   useEffect(() => {
@@ -303,7 +359,12 @@ export function LoadsBoard() {
         <FormatToolbar orderedLoadIds={loads?.map((l) => l.id) ?? []} loads={loads ?? []} />
       </div>
 
-      <div style={{ flex: 1, overflow: 'auto', border: '1px solid #ddd', borderRadius: '4px' }}>
+      {/* tabIndex makes the div focusable so it can capture paste events */}
+      <div
+        style={{ flex: 1, overflow: 'auto', border: '1px solid #ddd', borderRadius: '4px' }}
+        tabIndex={0}
+        onPaste={handlePaste}
+      >
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', tableLayout: 'fixed' }}>
           <thead>
             {table.getHeaderGroups().map((hg) => (
