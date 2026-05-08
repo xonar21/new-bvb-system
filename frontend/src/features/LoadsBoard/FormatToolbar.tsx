@@ -112,8 +112,9 @@ export function FormatToolbar({ orderedLoadIds: _orderedLoadIds, loads }: Format
         'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
       },
       body: JSON.stringify({ cells }),
-    }).catch(() => queryClient.invalidateQueries({ queryKey: ['loads'] })
-    ).finally(() => { isPendingRef.current = false })
+    })
+      .catch(() => queryClient.invalidateQueries({ queryKey: ['loads'] }))
+      .finally(() => { isPendingRef.current = false })
   }, [selectedCells, loads, hasSelection, queryClient])
 
   const toggleBold = useCallback(() => applyFormat({ bold: !resolvedFormat.bold }), [applyFormat, resolvedFormat.bold])

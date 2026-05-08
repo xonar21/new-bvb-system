@@ -322,7 +322,7 @@ export function LuckysheetBoard() {
         return;
       }
       const changes: { load_id: number; field: string; value: unknown }[] = [];
-      const styleChanges: { load_id: number; field: string; style: any }[] = [];
+      const styleChanges: { load_id: number; field: string; style: any; value: unknown }[] = [];
       const rows = Math.min(currentMatrix.length, lastMatrixRef.current.length);
       const cols = columnKeys.length;
       for (let r = 0; r < rows; r++) {
@@ -355,7 +355,7 @@ export function LuckysheetBoard() {
               style.fontSize = Number.isFinite(fs) ? fs : null;
             }
             if (Object.keys(style).length > 0) {
-              styleChanges.push({ load_id: loadId, field, style });
+              styleChanges.push({ load_id: loadId, field, style, value: newSnap.v ?? oldSnap.v ?? null });
             }
           }
         }
@@ -369,7 +369,7 @@ export function LuckysheetBoard() {
             send(JSON.stringify({ type: 'cell.bulk-update', payload: { updates: changes } }))
           }
           for (const sc of styleChanges.slice(0, 200)) {
-            send(JSON.stringify({ type: 'cell.update', payload: { load_id: sc.load_id, field: sc.field, style: sc.style } }))
+            send(JSON.stringify({ type: 'cell.update', payload: { load_id: sc.load_id, field: sc.field, value: sc.value, style: sc.style } }))
           }
         }
       }
@@ -648,30 +648,33 @@ export function LuckysheetBoard() {
   // focusedCells changes trigger this effect and the presence bar JSX.
   // MemoWorkbook is NOT re-rendered (all its props are stable).
   useEffect(() => {
-    if (!workbookRef.current) return;
+    if (!workbookRef.current) return
     const myUserId = currentUserRef.current?.id;
     const nextKeys = new Set<string>();
 
     Object.values(focusedCells).forEach((f) => {
-      if (myUserId && f.user_id === myUserId) return;
-      const rowIdx = lastMatrixRef.current.findIndex((row) => Number(row?.[0]?.v) === f.load_id);
-      const colIdx = columnKeys.findIndex((k) => String(k) === f.field);
-      if (rowIdx < 0 || colIdx < 0) return;
+      if (myUserId && f.user_id === myUserId) return
+      // Use rowLoadIdMapRef which correctly maps row index → load_id
+      const rowIdx = Array.from(rowLoadIdMapRef.current.entries()).find(([_, id]) => id === f.load_id)?.[0];
+      const colIdx = columnKeys.indexOf(f.field as any);
+      if (rowIdx === undefined || colIdx < 0) return
       const key = `${f.user_id}:${f.load_id}:${f.field}`;
       nextKeys.add(key);
-      workbookRef.current?.addPresences([{
-        sheetId: 'sheet-1',
-        username: f.user_name,
-        userId: String(f.user_id),
-        color: getUserColor(f.user_id),
-        selection: { r: rowIdx, c: colIdx },
-      } as any]);
+      if (typeof workbookRef.current?.addPresences === 'function') {
+        workbookRef.current?.addPresences([{
+          sheetId: 'sheet-1',
+          username: f.user_name,
+          userId: String(f.user_id),
+          color: getUserColor(f.user_id),
+          selection: { r: rowIdx, c: colIdx },
+        } as any]);
+      }
     });
 
     for (const key of presenceKeysRef.current) {
       if (!nextKeys.has(key)) {
         const userId = key.split(':')[0];
-        workbookRef.current?.removePresences([{ userId } as any]);
+        workbookRef.current?.removePresences?.([{ userId } as any]);
       }
     }
     presenceKeysRef.current = nextKeys;
@@ -754,17 +757,21 @@ export function LuckysheetBoard() {
     );
   }
 
+
   return (
     <div style={{ width: '100%', height: 'calc(100vh - 70px)', background: '#f5f5f5', display: 'flex', flexDirection: 'column' }}>
       {/* Presence bar — re-renders on focusedCells change, MemoWorkbook below does NOT */}
-      <div style={{ padding: '6px 12px', borderBottom: '1px solid #e0e0e0', display: 'flex', gap: '8px', flexWrap: 'wrap', fontSize: '12px', background: '#fff', minHeight: 32 }}>
+      <div style={{ padding: '6px 12px', borderBottom: '1px solid #e0e0e0', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', fontSize: '12px', background: '#fff', minHeight: 32 }}>
+        <span style={{ color: '#666', marginRight: '4px' }}>Active cells:</span>
         {Object.values(focusedCells).slice(0, 20).map((f) => (
           <span
             key={`${f.user_id}-${f.load_id}-${f.field}`}
-            title={`${f.user_name}: row ${f.load_id} / ${f.field}`}
-            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '20px', height: '20px', borderRadius: '4px', border: `1px solid ${getUserColor(f.user_id)}`, background: '#fafafa' }}
+            title={`${f.user_name}: row ${f.load_id} / ${f.field}${f.editing ? ' (editing)' : ''}`}
+            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px', padding: '2px 8px', borderRadius: '4px', border: `1px solid ${getUserColor(f.user_id)}`, background: `${getUserColor(f.user_id)}08`, fontSize: '11px', fontWeight: 500 }}
           >
-            <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: getUserColor(f.user_id) }} />
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: getUserColor(f.user_id) }} />
+            <span>{f.user_name.split('@')[0]}</span>
+            {f.editing && <span style={{ fontSize: '9px', opacity: 0.7 }}>(editing)</span>}
           </span>
         ))}
       </div>

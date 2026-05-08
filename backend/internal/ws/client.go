@@ -97,6 +97,8 @@ func (c *Client) ReadPump() {
 			payload.UserID = c.UserID
 			payload.UserName = c.UserName
 
+			log.Printf("ws cell.update received: load=%d field=%s value=%v style=%v", payload.LoadID, payload.Field, payload.Value, payload.Style)
+
 			enriched, err := json.Marshal(Message{Type: "cell.update", Payload: payload})
 			if err != nil {
 				continue

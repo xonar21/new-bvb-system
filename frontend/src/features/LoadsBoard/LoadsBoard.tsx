@@ -107,16 +107,11 @@ export function LoadsBoard() {
   const deactivateFormatPainter = useSelectionStore((s) => s.deactivateFormatPainter)
 
   // ── Initialise cellStore whenever loads are fetched/refreshed ───────────────
-  // Only re-initialise when the set of row IDs changes (new row added/deleted)
-  // or on first mount. Individual cell edits are handled via WS cell.update.
-  const loadsLengthRef = useRef(0)
+  // Re-initialise on every loads change to ensure cell_formats are loaded from DB.
+  // Individual cell edits are handled via WS cell.update (which merges into cellStore).
   useEffect(() => {
     if (!loads) return
-    // Always init on first load; after that, only if row count changes.
-    if (loads.length !== loadsLengthRef.current || loadsLengthRef.current === 0) {
-      loadsLengthRef.current = loads.length
-      useCellStore.getState().initFromLoads(loads)
-    }
+    useCellStore.getState().initFromLoads(loads)
   }, [loads])
 
   // ── TSV Paste handler ─────────────────────────────────────────────────────

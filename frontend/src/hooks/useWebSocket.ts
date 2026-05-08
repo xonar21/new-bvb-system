@@ -125,11 +125,11 @@ export function useWebSocket(token: string | null) {
 
             case 'cell.focus': {
               const p = msg.payload as CellFocusPayload
+              const myId = useAuthStore.getState().user?.id
               // Skip echoes of our own focus messages — we track our own focus locally
               // (in myFocusRef / optimistic setCellFocus) and don't need the server echo.
               // Without this filter, each cell click triggers: send → echo → setCellFocus
               // → wsStore update → LuckysheetBoard re-render → Workbook re-render → flash.
-              const myId = useAuthStore.getState().user?.id
               if (myId && p.user_id === myId) break
               if (p.action === 'focus' || p.action === 'editing') {
                 setCellFocus({
@@ -237,7 +237,11 @@ export function useWebSocket(token: string | null) {
                     fc: (p.style as any).fc ?? (p.style as any).fg,
                     bold: (p.style as any).bold,
                     italic: (p.style as any).italic,
+                    underline: (p.style as any).underline,
+                    strikethrough: (p.style as any).strikethrough,
                     fontSize: (p.style as any).fontSize,
+                    textAlign: (p.style as any).textAlign,
+                    verticalAlign: (p.style as any).verticalAlign,
                   }
                 }
                 useCellStore.getState().setCell(p.load_id, colId, patch)

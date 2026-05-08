@@ -74,6 +74,7 @@ function LoadCellInner({ cell, onUpdate, colKey, onCellSelect, fillHeight }: Loa
   const currentUser = useAuthStore((s) => s.user)
   const sendMessage = useWSStore((s) => s.sendMessage)
 
+
   const loadId = cell.row.original.id
   const field = cell.column.id          // TanStack column id (e.g. "pick_up_date")
   const focusKey = `${loadId}:${field}`
@@ -92,6 +93,7 @@ function LoadCellInner({ cell, onUpdate, colKey, onCellSelect, fillHeight }: Loa
   const formatPainterActive = useSelectionStore((s) => s.formatPainterActive)
   const cellKey = colKey ? `${loadId}:${colKey}` : ''
   const isSelected = useIsCellSelected(cellKey)
+
 
   const isFocused = focusInfo !== undefined
   const isFocusedByOther = isFocused && focusInfo!.user_id !== currentUser?.id
@@ -137,7 +139,9 @@ function LoadCellInner({ cell, onUpdate, colKey, onCellSelect, fillHeight }: Loa
   )
 
   const handleClick = useCallback(() => {
-    if (isGateCode || isLocked || isFocusedByOther) return
+    // Allow focus/presence for all cells (even read-only ones like gate_code).
+    // But prevent editing if locked or gate_code.
+    if (isFocusedByOther) return
     if (!currentUser || !sendMessage) return
 
     if (loadMyFocusRef.current?.loadId === loadId && loadMyFocusRef.current?.field === field) return
@@ -164,9 +168,10 @@ function LoadCellInner({ cell, onUpdate, colKey, onCellSelect, fillHeight }: Loa
     })
     sendFocus('focus')
     onCellSelect?.(loadId, colKey ?? field)
-  }, [isGateCode, isLocked, isFocusedByOther, currentUser, sendMessage, loadId, field, sendFocus, onCellSelect, colKey])
+  }, [isFocusedByOther, currentUser, sendMessage, loadId, field, sendFocus, onCellSelect, colKey])
 
   const handleDoubleClick = useCallback(() => {
+    // Prevent editing gate_code (read-only) or locked/editing-by-other cells
     if (isGateCode || isLocked || isFocusedByOther) return
     sendFocus('editing')
     setEditing(true)
@@ -182,6 +187,9 @@ function LoadCellInner({ cell, onUpdate, colKey, onCellSelect, fillHeight }: Loa
     const oldVal = displayValue.trim()
     if (newVal === oldVal) return
 
+    // Don't save if this is a read-only column (like gate_code)
+    if (isGateCode) return
+
     const isNumeric = ['rate', 'rate_min', 'rate_max', 'font_size', 'order_number'].includes(field)
     const parsed = isNumeric ? (Number(newVal) || null) : newVal || null
 
@@ -192,17 +200,35 @@ function LoadCellInner({ cell, onUpdate, colKey, onCellSelect, fillHeight }: Loa
     })
 
     // 2. Forward via WebSocket — backend broadcasts to others + async DB write.
+    // Include current cell style so it's preserved when other users see the update.
     const dbField = COLUMN_TO_FIELD[field]
     if (dbField && sendMessage) {
+      const cellStyle = storeStyle ? {
+        bg: storeStyle.bg,
+        fc: storeStyle.fc,
+        bold: storeStyle.bold,
+        italic: storeStyle.italic,
+        underline: storeStyle.underline,
+        strikethrough: storeStyle.strikethrough,
+        fontSize: storeStyle.fontSize,
+        textAlign: storeStyle.textAlign,
+        verticalAlign: storeStyle.verticalAlign,
+      } : undefined
+
       sendMessage(JSON.stringify({
         type: 'cell.update',
-        payload: { load_id: loadId, field: dbField, value: parsed },
+        payload: {
+          load_id: loadId,
+          field: dbField,
+          value: parsed,
+          style: cellStyle,
+        },
       }))
     }
 
     // 3. Backward compat: notify parent (e.g. for REST-based fallback if WS is down).
     onUpdate?.(cell.row.original.id, cell.column.id, parsed)
-  }, [value, displayValue, cell, onUpdate, sendFocus, loadId, field, colKey, sendMessage])
+  }, [value, displayValue, cell, onUpdate, sendFocus, loadId, field, colKey, sendMessage, storeStyle, isGateCode])
 
   const handleBlur = useCallback(() => {
     if (!editing) return
@@ -230,7 +256,13 @@ function LoadCellInner({ cell, onUpdate, colKey, onCellSelect, fillHeight }: Loa
       if (storeStyle.fc) base.color = storeStyle.fc
       if (storeStyle.bold !== undefined) base.fontWeight = storeStyle.bold ? 700 : 400
       if (storeStyle.italic !== undefined) base.fontStyle = storeStyle.italic ? 'italic' : undefined
+      if (storeStyle.underline !== undefined || storeStyle.strikethrough !== undefined) {
+        const decs = [storeStyle.underline && 'underline', storeStyle.strikethrough && 'line-through'].filter(Boolean)
+        base.textDecoration = decs.length > 0 ? decs.join(' ') : undefined
+      }
       if (storeStyle.fontSize) base.fontSize = `${storeStyle.fontSize}pt`
+      if (storeStyle.textAlign) base.textAlign = storeStyle.textAlign as any
+      if (storeStyle.verticalAlign) base.verticalAlign = storeStyle.verticalAlign as any
     }
     return base
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -312,6 +344,20 @@ function LoadCellInner({ cell, onUpdate, colKey, onCellSelect, fillHeight }: Loa
     )
   }
 
+  const presenceBorder = isFocused
+    ? `2px solid ${focusColor}`
+    : isEditingByOther || isFocusedByOther
+      ? `2px dashed ${focusColor}`
+      : undefined
+
+  const presenceShadow = isFocused
+    ? `inset 0 0 0 2px ${focusColor}, 0 0 0 1px ${focusColor}33`
+    : isEditingByOther
+      ? `inset 0 0 0 2px ${focusColor}40, 0 0 3px ${focusColor}60`
+      : isFocusedByOther
+        ? `inset 0 0 0 1px ${focusColor}40`
+        : undefined
+
   return (
     <div
       onClick={handleClick}
@@ -328,7 +374,7 @@ function LoadCellInner({ cell, onUpdate, colKey, onCellSelect, fillHeight }: Loa
         textDecoration: cellStyle.textDecoration ?? undefined,
         textAlign: cellStyle.textAlign ?? undefined,
         verticalAlign: cellStyle.verticalAlign ?? undefined,
-        background: selectionBg ?? cellStyle.backgroundColor ?? (isMCC ? '#fff3cd' : isEditingByOther ? '#f5f5f5' : isFocused ? '#f0f7ff' : 'transparent'),
+        background: selectionBg ?? cellStyle.backgroundColor ?? (isMCC ? '#fff3cd' : isEditingByOther ? 'rgba(255,193,7,0.08)' : isFocused ? 'transparent' : 'transparent'),
         color: cellStyle.color ?? undefined,
         fontSize: cellStyle.fontSize ?? undefined,
         outline: isSelected ? `2px solid ${formatPainterActive ? '#fbbc04' : '#1a73e8'}` : undefined,
@@ -336,8 +382,9 @@ function LoadCellInner({ cell, onUpdate, colKey, onCellSelect, fillHeight }: Loa
         ...(fillHeight ? { height: '100%', boxSizing: 'border-box' } : {}),
         overflow: 'hidden',
         padding: '1px',
-        borderLeft: isFocused ? `3px solid ${focusColor}` : '3px solid transparent',
-        opacity: isEditingByOther ? 0.6 : 1,
+        border: presenceBorder || 'none',
+        boxShadow: presenceShadow,
+        opacity: 1,
         userSelect: 'none',
       }}
       title={

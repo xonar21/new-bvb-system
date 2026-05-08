@@ -21,7 +21,11 @@ export interface CellStyle {
   fc?: string       // foreground (text) color hex
   bold?: boolean
   italic?: boolean
+  underline?: boolean
+  strikethrough?: boolean
   fontSize?: number
+  textAlign?: 'left' | 'center' | 'right'
+  verticalAlign?: 'top' | 'middle' | 'bottom'
 }
 
 export interface CellData {
@@ -82,7 +86,11 @@ function loadToCells(load: Load): Record<string, CellData> {
           fc: fmt.fg ?? undefined,
           bold: fmt.bold,
           italic: fmt.italic,
+          underline: fmt.underline,
+          strikethrough: fmt.strikethrough,
           fontSize: fmt.fontSize ?? undefined,
+          textAlign: (fmt.textAlign as CellStyle['textAlign']) ?? undefined,
+          verticalAlign: (fmt.verticalAlign as CellStyle['verticalAlign']) ?? undefined,
         }
       : undefined
     result[`${load.id}:${col}`] = { value: strVal, style }
