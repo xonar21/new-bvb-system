@@ -104,7 +104,17 @@ function buildSheetConfig(loadsData: Load[]) {
     celldata,
     row: Math.max(loadsData.length, 100),
     column: columnKeys.length,
-    config: {},
+    config: {
+      columnlen: {
+        "0": 120, // pick_up_date_col1
+        "1": 120, // commodity_col2
+        "2": 250, // pickup_date_location_col3
+        "3": 250, // delivery_date_location_col4
+        "4": 150, // assigned_user_col5
+        "5": 120, // gate_code_col6
+        "6": 100, // rate_col7
+      }
+    },
   };
 }
 
@@ -228,6 +238,7 @@ export function LuckysheetBoard() {
     setApplySheetOp(applySheetOp);
     return () => setApplySheetOp(null);
   }, [setApplySheetOp]);
+
 
   // NOTE: We do NOT register applyCellUpdate.
   // Fortune Sheet already receives value updates via sheet.op → applyOp (above).
@@ -750,10 +761,10 @@ export function LuckysheetBoard() {
         {Object.values(focusedCells).slice(0, 20).map((f) => (
           <span
             key={`${f.user_id}-${f.load_id}-${f.field}`}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '2px 8px', borderRadius: '999px', border: `1px solid ${getUserColor(f.user_id)}`, color: '#333', background: '#fafafa' }}
+            title={`${f.user_name}: row ${f.load_id} / ${f.field}`}
+            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '20px', height: '20px', borderRadius: '4px', border: `1px solid ${getUserColor(f.user_id)}`, background: '#fafafa' }}
           >
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: getUserColor(f.user_id) }} />
-            {f.user_name}: row {f.load_id} / {f.field}
+            <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: getUserColor(f.user_id) }} />
           </span>
         ))}
       </div>
