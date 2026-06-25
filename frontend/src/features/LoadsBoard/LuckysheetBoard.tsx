@@ -670,24 +670,62 @@ export function LuckysheetBoard() {
     presenceKeysRef.current = nextKeys;
   }, [focusedCells]);
 
-  // ── Presence styling: single-cell color + email only on hover ──────────────
+  // ── Presence: single-cell color + email tooltip on hover ───────────────────
   // Fortune Sheet's native presence renders a single-cell box (.fortune-presence-selection)
-  // with a permanent username label (.fortune-presence-username). We override the CSS so:
-  //   • the colored cell box stays visible (single cell, not whole row)
-  //   • the email label is hidden by default and shown only when hovering the cell
+  // with a username label (.fortune-presence-username). We:
+  //   • keep the colored box purely visual (pointer-events:none → never blocks clicks)
+  //   • hide the native label
+  //   • show the email in our OWN tooltip when the mouse hovers a presence cell,
+  //     detected by hit-testing the box rects (robust vs canvas stacking/z-index).
   useEffect(() => {
-    const styleId = 'presence-hover-style';
-    if (document.getElementById(styleId)) return;
-    const style = document.createElement('style');
-    style.id = styleId;
-    style.textContent = `
-      .fortune-presence-selection { pointer-events: auto; }
-      .fortune-presence-username { display: none !important; }
-      .fortune-presence-selection:hover .fortune-presence-username { display: inline-block !important; }
-    `;
-    document.head.appendChild(style);
-    return () => { document.getElementById(styleId)?.remove(); };
-  }, []);
+    const styleId = 'presence-style';
+    if (!document.getElementById(styleId)) {
+      const style = document.createElement('style');
+      style.id = styleId;
+      style.textContent = `
+        .fortune-presence-selection { pointer-events: none !important; }
+        .fortune-presence-username { display: none !important; }
+      `;
+      document.head.appendChild(style);
+    }
+
+    const host = workbookHostRef.current;
+    if (!host) return;
+
+    const tip = document.createElement('div');
+    tip.style.cssText =
+      'position:absolute; pointer-events:none; z-index:1000; padding:2px 8px;' +
+      'border-radius:4px; font-size:11px; font-family:sans-serif; color:#fff;' +
+      'white-space:nowrap; display:none; box-shadow:0 1px 4px rgba(0,0,0,0.3);';
+    host.appendChild(tip);
+
+    const onMove = (e: MouseEvent) => {
+      const hostRect = host.getBoundingClientRect();
+      let hit: { name: string; color: string } | null = null;
+      for (const b of Array.from(host.querySelectorAll('.fortune-presence-selection'))) {
+        const el = b as HTMLElement;
+        const r = el.getBoundingClientRect();
+        if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
+          const label = el.querySelector('.fortune-presence-username') as HTMLElement | null;
+          hit = { name: label?.textContent || '', color: el.style.borderColor || '#4a90d9' };
+        }
+      }
+      if (hit) {
+        tip.textContent = hit.name;
+        tip.style.background = hit.color;
+        tip.style.left = `${e.clientX - hostRect.left + 12}px`;
+        tip.style.top = `${e.clientY - hostRect.top + 12}px`;
+        tip.style.display = 'block';
+      } else {
+        tip.style.display = 'none';
+      }
+    };
+    host.addEventListener('mousemove', onMove);
+    return () => {
+      host.removeEventListener('mousemove', onMove);
+      tip.remove();
+    };
+  }, [sheets.length]);
 
   // ── Scroll fix for wheel/trackpad ─────────────────────────────────────────
   useEffect(() => {
