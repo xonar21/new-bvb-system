@@ -22,6 +22,7 @@ type Config struct {
 	GoogleSheetID        string
 	GoogleServiceAccount string
 	SyncInterval         time.Duration
+	SyncEnabled          bool
 
 	JWTSecret     string
 	JWTTTL        time.Duration
@@ -44,6 +45,7 @@ func Load() *Config {
 		GoogleSheetID:        getEnv("GOOGLE_SHEET_ID", ""),
 		GoogleServiceAccount: getEnv("GOOGLE_SERVICE_ACCOUNT", ""),
 		SyncInterval:         getEnvDuration("SYNC_INTERVAL_MINUTES", 10),
+		SyncEnabled:          getEnvBool("SYNC_ENABLED", false),
 
 		JWTSecret:   getEnv("JWT_SECRET", "super_secret_key_change_in_prod"),
 		JWTTTL:      getEnvDuration("JWT_TTL_HOURS", 168),
@@ -65,6 +67,15 @@ func buildPostgresDSN() string {
 func getEnv(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return fallback
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	if v := os.Getenv(key); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
+		}
 	}
 	return fallback
 }

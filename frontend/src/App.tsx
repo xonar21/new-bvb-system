@@ -7,6 +7,7 @@ import { LoginPage } from './components/LoginPage'
 import { AccessDeniedPage } from './components/AccessDeniedPage'
 import { Layout } from './components/Layout'
 import { LuckysheetBoard } from './features/LoadsBoard/LuckysheetBoard'
+import { SheetHistory } from './features/LoadsBoard/SheetHistory'
 import { UsersManagement } from './features/UsersManagement/UsersManagement'
 import { AllowedIps } from './features/AllowedIps/AllowedIps'
 
@@ -24,6 +25,9 @@ function AppContent() {
   const [activeTab, setActiveTab] = useState('loads')
   const [ipDenied, setIpDenied] = useState<boolean | null>(null)
   const isAdmin = user?.role === 'admin' || user?.role === 'root'
+  // Standalone route: when opened in its own browser tab via #/logs, render only
+  // the logs page (no sidebar). Used by the "Loguri & istoric" button.
+  const isLogsRoute = window.location.hash.replace(/^#/, '') === '/logs'
 
   useWebSocket(token)
 
@@ -67,6 +71,18 @@ function AppContent() {
         Loading...
       </div>
     )
+  }
+
+  // Standalone logs page (opened in its own browser tab).
+  if (isLogsRoute) {
+    if (!isAdmin) {
+      return (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'system-ui, sans-serif', color: '#c0392b', fontSize: '15px' }}>
+          Acces interzis — doar administratorii pot vedea logurile.
+        </div>
+      )
+    }
+    return <SheetHistory />
   }
 
   const renderContent = () => {

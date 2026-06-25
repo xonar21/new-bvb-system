@@ -11,6 +11,7 @@ import (
 	"bvb-datatable/internal/db"
 	"bvb-datatable/internal/layout"
 	"bvb-datatable/internal/loads"
+	"bvb-datatable/internal/sheetdoc"
 	"bvb-datatable/internal/sheets"
 	"bvb-datatable/internal/users"
 	"bvb-datatable/internal/ws"
@@ -41,7 +42,7 @@ func main() {
 
 	var sheetSync *sheets.SheetsSync
 
-	if cfg.GoogleServiceAccount != "" && cfg.GoogleSheetID != "" {
+	if cfg.SyncEnabled && cfg.GoogleServiceAccount != "" && cfg.GoogleSheetID != "" {
 		sheetsClient, err := sheets.NewClient(cfg.GoogleServiceAccount)
 		if err != nil {
 			log.Printf("Google Sheets client init failed (sync disabled): %v", err)
@@ -80,7 +81,7 @@ func main() {
 			log.Printf("Google Sheets sync enabled, interval: %v", cfg.SyncInterval)
 		}
 	} else {
-		log.Println("Google Sheets sync disabled (no credentials or sheet ID)")
+		log.Println("Google Sheets sync disabled (SYNC_ENABLED off or no credentials)")
 	}
 
 	app := fiber.New(fiber.Config{
@@ -115,6 +116,14 @@ func main() {
 	layoutHandler := layout.NewHandler(layoutRepo, wsHub)
 	layoutHandler.RegisterRoutes(api, authMW, auth.RequireRole("root"))
 	layout.StartLockCleanup(layoutRepo, wsHub)
+
+	// Full sheet document persistence + history. Any authenticated user can read;
+	// admin/editor/root may save; only admin/root may view history & restore.
+	sheetDocRepo := sheetdoc.NewRepository(pgPool)
+	sheetDocHandler := sheetdoc.NewHandler(sheetDocRepo)
+	sheetDocHandler.RegisterRoutes(api, authMW,
+		auth.RequireRoles("admin", "editor", "root"),
+		auth.RequireRoles("admin", "root"))
 
 	allowedIPsRepo := allowedips.NewRepository(pgPool)
 	allowedIPsMiddleware := allowedips.NewIPMiddleware(allowedIPsRepo)

@@ -109,6 +109,44 @@ func Migrate(pool *pgxpool.Pool) {
 	VALUES (1, '{}', '{}')
 	ON CONFLICT (id) DO NOTHING;
 
+	-- Full Fortune Sheet document snapshot (single global doc, id = 1).
+	-- Stores the entire workbook state: sheet name, all cell values + styles,
+	-- config (column widths/row heights/merges), etc. — so nothing is lost.
+	CREATE TABLE IF NOT EXISTS sheet_documents (
+		id SERIAL PRIMARY KEY,
+		name TEXT NOT NULL DEFAULT 'Loads',
+		data JSONB NOT NULL DEFAULT '{}',
+		updated_at TIMESTAMPTZ DEFAULT NOW(),
+		last_edited_by INT REFERENCES users(id)
+	);
+
+	INSERT INTO sheet_documents (id, name, data)
+	VALUES (1, 'Loads', '{}')
+	ON CONFLICT (id) DO NOTHING;
+
+	-- Full snapshots kept for history: before/after each deletion + periodic.
+	CREATE TABLE IF NOT EXISTS sheet_versions (
+		id SERIAL PRIMARY KEY,
+		name TEXT NOT NULL DEFAULT 'Loads',
+		data JSONB NOT NULL,
+		reason TEXT NOT NULL DEFAULT 'auto', -- auto | before_delete | after_delete | manual | restore
+		created_by INT REFERENCES users(id),
+		created_by_email TEXT,
+		created_at TIMESTAMPTZ DEFAULT NOW()
+	);
+	CREATE INDEX IF NOT EXISTS idx_sheet_versions_created_at ON sheet_versions(created_at DESC);
+
+	-- Audit log: who deleted what and when.
+	CREATE TABLE IF NOT EXISTS sheet_audit_log (
+		id SERIAL PRIMARY KEY,
+		user_id INT REFERENCES users(id),
+		user_email TEXT,
+		action TEXT NOT NULL,        -- delete_rows | delete_cols | clear_cells | restore
+		details JSONB DEFAULT '{}',
+		created_at TIMESTAMPTZ DEFAULT NOW()
+	);
+	CREATE INDEX IF NOT EXISTS idx_sheet_audit_created_at ON sheet_audit_log(created_at DESC);
+
 	CREATE OR REPLACE FUNCTION loads_notify_insert()
 	RETURNS TRIGGER AS $$
 	BEGIN

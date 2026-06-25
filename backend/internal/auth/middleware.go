@@ -40,3 +40,18 @@ func RequireRole(role string) fiber.Handler {
 		return c.Next()
 	}
 }
+
+// RequireRoles allows any of the given roles through.
+func RequireRoles(roles ...string) fiber.Handler {
+	allowed := make(map[string]bool, len(roles))
+	for _, r := range roles {
+		allowed[r] = true
+	}
+	return func(c *fiber.Ctx) error {
+		userRole, ok := c.Locals("user_role").(string)
+		if !ok || !allowed[userRole] {
+			return c.Status(403).JSON(fiber.Map{"error": "insufficient permissions"})
+		}
+		return c.Next()
+	}
+}

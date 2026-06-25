@@ -2,7 +2,8 @@ import { useEffect, useState, useCallback, useRef, useMemo, memo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Workbook } from '@fortune-sheet/react';
 import '@fortune-sheet/react/dist/index.css';
-import { useLoads, useDeleteLoad } from '../../hooks/useLoads';
+import { useDeleteLoad } from '../../hooks/useLoads';
+import { useSheetDoc, saveSheetDoc, saveDeleteEvent } from '../../hooks/useSheetDoc';
 import { Load } from '../../types/Load';
 import { useWSStore } from '../../store/wsStore';
 import { useAuthStore } from '../../store/authStore';
@@ -173,13 +174,46 @@ function sameSnapshot(a: CellSnapshot, b: CellSnapshot): boolean {
     a.fs === b.fs
 }
 
+// Inspect a batch of Fortune Sheet ops and decide whether it represents a
+// deletion (row/column removal or cell clearing). Used to keep before/after
+// versions and an audit entry for deletions.
+function detectDeletion(ops: any[]): { isDelete: boolean; action: 'delete_rows' | 'delete_cols' | 'clear_cells'; details: any } {
+  const rows: number[] = [];
+  const cols: number[] = [];
+  let clearedCells = 0;
+  for (const op of ops) {
+    const t = op?.op;
+    const path = Array.isArray(op?.path) ? op.path : [];
+    if (t === 'deleteRowCol') {
+      const v = op?.value ?? {};
+      const start = Number(v.start);
+      const end = Number(v.end ?? v.start);
+      if (!Number.isNaN(start)) {
+        for (let i = start; i <= end; i++) (v.type === 'column' ? cols : rows).push(i);
+      }
+    } else if (t === 'remove') {
+      clearedCells++;
+    } else if (t === 'replace') {
+      const isData = path[0] === 'data' || typeof path[0] === 'number';
+      if (isData) {
+        const val = op?.value;
+        const v = val && typeof val === 'object' ? (val.v ?? val.m) : val;
+        if (v === '' || v === null || v === undefined) clearedCells++;
+      }
+    }
+  }
+  const action: 'delete_rows' | 'delete_cols' | 'clear_cells' =
+    rows.length > 0 ? 'delete_rows' : cols.length > 0 ? 'delete_cols' : 'clear_cells';
+  return { isDelete: rows.length > 0 || cols.length > 0 || clearedCells > 0, action, details: { rows, cols, cleared_cells: clearedCells } };
+}
+
 // Memoized Workbook: props are kept stable → memo prevents ALL re-renders from parent.
 // The only way Fortune Sheet redraws is via explicit updateSheet() / applyOp() calls.
 const MemoWorkbook = memo(Workbook);
 
 export function LuckysheetBoard() {
   const queryClient = useQueryClient();
-  const { data: loads, isLoading, isError, error } = useLoads();
+  const { data: sheetDoc, isLoading, isError, error } = useSheetDoc();
   const deleteMutation = useDeleteLoad();
   const sendMessage = useWSStore((s) => s.sendMessage);
   const focusedCells = useWSStore((s) => s.focusedCells);
@@ -197,6 +231,11 @@ export function LuckysheetBoard() {
   const myFocusRef = useRef<{ row: number; col: number } | null>(null);
   const presenceKeysRef = useRef<Set<string>>(new Set());
   const isExternalUpdateRef = useRef(false);
+  const initializedRef = useRef(false);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Snapshot of the workbook BEFORE the current op — used to keep the "before
+  // deletion" version. Updated to the post-op state at the end of every op.
+  const prevSnapshotRef = useRef<any[]>([]);
 
   // ── STABLE row→loadId map (source of truth for loadId lookup) ─────────────
   // This is built from `loads` (server data), NOT from lastMatrixRef.
@@ -243,35 +282,42 @@ export function LuckysheetBoard() {
   // Fortune Sheet already receives value updates via sheet.op → applyOp (above).
   // Registering applyCellUpdate would double-apply and potentially strip cell styles.
 
-  // ── Sync server data → Fortune Sheet ──────────────────────────────────────
+  // ── Load the saved sheet snapshot → Fortune Sheet (once) ───────────────────
+  // The full workbook (name, all cells, styles, config, merges) is restored from
+  // the server. If nothing was saved yet, start from a default empty sheet.
   useEffect(() => {
-    if (!loads) return;
-    const sortedIds = loads.map((l) => l.id).sort((a, b) => a - b).join(',');
-    const loadsKey = `${sortedIds}:${fullRefreshSeq}`;
-    if (loadsKey === lastLoadsKeyRef.current) return;
-    lastLoadsKeyRef.current = loadsKey;
+    if (!sheetDoc || initializedRef.current) return;
+    initializedRef.current = true;
 
-    // Rebuild stable row→loadId map from authoritative server data
-    const newMap = new Map<number, number>();
-    loads.forEach((load, rowIdx) => { newMap.set(rowIdx, load.id); });
-    rowLoadIdMapRef.current = newMap;
+    const saved = Array.isArray(sheetDoc.data) ? sheetDoc.data : null;
+    const initial = (saved && saved.length > 0) ? saved : [buildSheetConfig([])];
+    setSheets(initial);
+    prevSnapshotRef.current = initial;
+  }, [sheetDoc]);
 
-    const sheetConfig = buildSheetConfig(loads);
-    lastMatrixRef.current = loads.map((load) =>
-      columnKeys.map((key) => ({ v: formatValue(load[key], key as string) })),
-    );
-
-    if (workbookRef.current) {
-      isExternalUpdateRef.current = true;
+  // ── Debounced full-snapshot save ───────────────────────────────────────────
+  // Persists the ENTIRE workbook (every cell, style, the sheet name, config…)
+  // a short moment after the last local change. Other users get changes live via
+  // sheet.op; this guarantees nothing is lost on refresh/reconnect.
+  const scheduleSave = useCallback(() => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      const wb = workbookRef.current;
+      if (!wb?.getAllSheets) return;
       try {
-        workbookRef.current.updateSheet([sheetConfig]);
-      } finally {
-        setTimeout(() => { isExternalUpdateRef.current = false; }, 0);
+        const allSheets = wb.getAllSheets() ?? [];
+        const name = allSheets[0]?.name ?? 'Loads';
+        saveSheetDoc(name, allSheets).catch((e) => console.warn('[saveSheet] failed', e));
+      } catch (e) {
+        console.warn('[saveSheet] error', e);
       }
-    } else {
-      setSheets([sheetConfig]);
-    }
-  }, [loads, fullRefreshSeq]);
+    }, 1200);
+  }, []);
+
+  // Flush a final save when leaving the page.
+  useEffect(() => {
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
+  }, []);
 
   // ── STABLE: sendCurrentSelectionFocus ─────────────────────────────────────
   // Presence is tracked by sheet COORDINATES (row/col), so it works on any cell
@@ -384,7 +430,9 @@ export function LuckysheetBoard() {
       detectAndSendChangesRef.current(newMatrix);
     }
     sendCurrentSelectionFocus();
-  }, [sendCurrentSelectionFocus]);
+    // Persist the full workbook snapshot (debounced) after a local change.
+    scheduleSave();
+  }, [sendCurrentSelectionFocus, scheduleSave]);
 
   // ── STABLE: Fortune Sheet hooks ───────────────────────────────────────────
   // afterSelectionChange fires on every cell click/selection (not just edits),
@@ -420,170 +468,32 @@ export function LuckysheetBoard() {
 
     const send = sendMsgRef.current;
 
-    // Forward ALL ops to other clients via sheet.op (value + formatting)
+    // Live collaboration: forward ALL ops (values, styles, insert/delete rows,
+    // merges, etc.) to other clients, who apply them surgically via applyOp.
     if (send) {
       send(JSON.stringify({ type: 'sheet.op', payload: { ops } }));
     }
 
-    const valueChanges: { load_id: number; field: string; value: unknown }[] = [];
-    const styleChanges: { load_id: number; field: string; style: any }[] = [];
-    const STYLE_KEYS = new Set(['bg', 'fc', 'bl', 'it', 'un', 'st', 'fs']);
+    const wb = workbookRef.current;
+    const before = prevSnapshotRef.current;
+    const after = wb?.getAllSheets ? wb.getAllSheets() : [];
+    const name = after[0]?.name ?? 'Loads';
 
-    for (const op of ops) {
-      const opType: string = op?.op ?? '';
-      const path: (string | number)[] = Array.isArray(op?.path) ? op.path : [];
-
-      // Row deletion must be handled before any value/style parsing that may `continue`
-      // (otherwise TS narrows opType to "remove" | "replace" and deleteRowCol becomes unreachable).
-      if (opType === 'deleteRowCol') {
-        const val = op?.value ?? {};
-        if (val.type !== 'row') continue;
-        const start = Number(val.start);
-        const end = Number(val.end ?? val.start);
-        if (Number.isNaN(start)) continue;
-        for (let rowIdx = start; rowIdx <= end; rowIdx++) {
-          const loadId = rowLoadIdMapRef.current.get(rowIdx);
-          if (!loadId) continue;
-          deleteMutateRef.current(loadId);
-        }
-        continue;
-      }
-
-      // Row insertion: Fortune Sheet can add rows visually, but DB won't change
-      // unless we create actual loads records. We create placeholder loads with
-      // unique gate_code_col6 so they persist across reloads.
-      if (opType === 'insertRowCol') {
-        const val = op?.value ?? {};
-        if (val.type !== 'row') continue;
-        const start = Number(val.start);
-        const count = Number(val.len ?? val.count ?? 1);
-        if (Number.isNaN(start) || Number.isNaN(count) || count <= 0) continue;
-
-        const now = Date.now();
-        const creates = Array.from({ length: Math.min(count, 200) }, (_, i) => ({
-          gate_code_col6: `MANUAL-${now}-${start + i}-${Math.floor(Math.random() * 1e6)}`,
-        }));
-
-        // Fire-and-forget; after creates complete, refresh loads so sheet rebuilds from DB.
-        Promise.allSettled(
-          creates.map((data) => apiClient.post<{ load: Load }>('/api/loads', data)),
-        ).then(() => {
-          useWSStore.getState().requestFullRefresh();
-          queryClient.invalidateQueries({ queryKey: ['loads'] });
-        });
-        continue;
-      }
-
-      // Cell value edit - support both "data" prefix and raw index paths
-      let rowIdx: number | undefined;
-      let colIdx: number | undefined;
-      let rawVal: unknown;
-
-      if (path[0] === 'data' && path.length >= 3) {
-        // Standard format: ["data", row, col, "v"]
-        rowIdx = Number(path[1]);
-        colIdx = Number(path[2]);
-        if (Number.isNaN(rowIdx!) || Number.isNaN(colIdx!)) continue;
-        if (path.length === 4 && path[3] !== 'v' && path[3] !== 'm') continue;
-        if (opType === 'remove') {
-          rawVal = null;
-        } else if (opType === 'replace') {
-          rawVal = path.length === 3 ? op?.value?.v : (path[3] === 'v' ? op?.value : undefined);
-        } else {
-          continue;
-        }
-      } else if (path.length >= 2 && typeof path[0] === 'number' && typeof path[1] === 'number') {
-        // Alternative format: [row, col, "v"]
-        rowIdx = Number(path[0]);
-        colIdx = Number(path[1]);
-        if (Number.isNaN(rowIdx!) || Number.isNaN(colIdx!)) continue;
-        if (path.length === 3 && path[2] !== 'v' && path[2] !== 'm') continue;
-        if (opType === 'remove') {
-          rawVal = null;
-        } else if (opType === 'replace') {
-          rawVal = path.length === 2 ? op?.value?.v : (path[2] === 'v' ? op?.value : undefined);
-        } else {
-          continue;
-        }
-      } else {
-        continue;
-      }
-
-      if (rawVal !== undefined) {
-        const u = buildUpdate(rowIdx!, colIdx!, rawVal);
-        if (u) valueChanges.push(u);
-      }
-
-      // ── Style persistence ────────────────────────────────────────────────
-      // Fortune Sheet style ops can arrive as:
-      //   ["data", r, c, "bg"]             (direct key)
-      //   ["data", r, c, "v", "bg"]        (nested under v)
-      //   ["data", r, c] with op.value {... bg/fc/bl/fs ...} (replace whole cell)
-      if (path[0] === 'data' && path.length >= 3) {
-        const r = Number(path[1]);
-        const c = Number(path[2]);
-        if (!Number.isNaN(r) && !Number.isNaN(c) && c > 0 && c < columnKeys.length) {
-          const loadId = rowLoadIdMapRef.current.get(r);
-          if (loadId) {
-            const field = String(columnKeys[c]);
-            const style: any = {};
-
-            // Case A: key-based update (path ends with a style key)
-            const lastKey = String(path[path.length - 1]);
-            if (STYLE_KEYS.has(lastKey)) {
-              const v = opType === 'remove' ? null : op?.value;
-              if (lastKey === 'bg') style.bg = v;
-              else if (lastKey === 'fc') style.fg = v;
-              else if (lastKey === 'bl') style.bold = !!v && v !== 0;
-              else if (lastKey === 'it') style.italic = !!v && v !== 0;
-              else if (lastKey === 'un') style.underline = !!v && v !== 0;
-              else if (lastKey === 'st') style.strikethrough = !!v && v !== 0;
-              else if (lastKey === 'fs') style.fontSize = typeof v === 'number' ? v : Number(v);
-            }
-
-            // Case B: whole-cell replace where op.value contains style keys
-            if (Object.keys(style).length === 0 && opType === 'replace' && path.length === 3) {
-              const cellObj = op?.value;
-              if (cellObj && typeof cellObj === 'object') {
-                const co: any = cellObj;
-                const maybe = co?.v && typeof co.v === 'object' ? co.v : co;
-                if (maybe && typeof maybe === 'object') {
-                  if ('bg' in maybe) style.bg = (maybe as any).bg ?? null;
-                  if ('fc' in maybe) style.fg = (maybe as any).fc ?? null;
-                  if ('bl' in maybe) style.bold = !!(maybe as any).bl && (maybe as any).bl !== 0;
-                  if ('it' in maybe) style.italic = !!(maybe as any).it && (maybe as any).it !== 0;
-                  if ('un' in maybe) style.underline = !!(maybe as any).un && (maybe as any).un !== 0;
-                  if ('st' in maybe) style.strikethrough = !!(maybe as any).st && (maybe as any).st !== 0;
-                  if ('fs' in maybe) style.fontSize = typeof (maybe as any).fs === 'number' ? (maybe as any).fs : Number((maybe as any).fs);
-                }
-              }
-            }
-
-            // Drop NaN fontSize
-            if (style.fontSize != null && Number.isNaN(style.fontSize)) delete style.fontSize;
-
-            if (Object.keys(style).length > 0) {
-              styleChanges.push({ load_id: loadId, field, style });
-            }
-          }
-        }
-      }
+    const del = detectDeletion(ops);
+    if (del.isDelete) {
+      // Cancel a pending normal save — the delete-event persists the new state
+      // AND keeps before/after versions + an audit entry.
+      if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null; }
+      saveDeleteEvent({ name, before, after, action: del.action, details: del.details })
+        .catch((e) => console.warn('[deleteEvent] failed', e));
+    } else {
+      // Normal change → debounced full-snapshot save.
+      scheduleSave();
     }
 
-    if (!send) return;
-    if (valueChanges.length === 1) {
-      send(JSON.stringify({ type: 'cell.update', payload: valueChanges[0] }));
-    } else if (valueChanges.length > 1) {
-      send(JSON.stringify({ type: 'cell.bulk-update', payload: { updates: valueChanges } }));
-    }
-
-    // Persist formatting (bg/fg/bold/fontSize/etc.) as DB cell_formats via ws cell.update.style.
-    for (const sc of styleChanges.slice(0, 200)) {
-      send(JSON.stringify({ type: 'cell.update', payload: { load_id: sc.load_id, field: sc.field, style: sc.style } }));
-    }
-
+    prevSnapshotRef.current = after;
     sendCurrentSelectionFocus();
-  }, [sendCurrentSelectionFocus]);
+  }, [sendCurrentSelectionFocus, scheduleSave]);
 
   // ── handlePaste: TSV clipboard → WS bulk update ───────────────────────────
   // Fortune Sheet handles the visual paste natively (no preventDefault).
