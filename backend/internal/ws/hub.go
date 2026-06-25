@@ -290,8 +290,8 @@ func (h *Hub) OnlineCount() int {
 	return len(h.clients)
 }
 
-func HandleWS(conn *websocket.Conn, hub *Hub, userID int64, userName string) {
-	client := NewClient(hub, conn, userID, userName)
+func HandleWS(conn *websocket.Conn, hub *Hub, userID int64, userName, userColor string) {
+	client := NewClient(hub, conn, userID, userName, userColor)
 
 	select {
 	case hub.register <- client:

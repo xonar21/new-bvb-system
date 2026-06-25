@@ -22,20 +22,22 @@ const (
 )
 
 type Client struct {
-	hub      *Hub
-	conn     *websocket.Conn
-	send     chan []byte
-	UserID   int64
-	UserName string
+	hub       *Hub
+	conn      *websocket.Conn
+	send      chan []byte
+	UserID    int64
+	UserName  string
+	UserColor string
 }
 
-func NewClient(hub *Hub, conn *websocket.Conn, userID int64, userName string) *Client {
+func NewClient(hub *Hub, conn *websocket.Conn, userID int64, userName, userColor string) *Client {
 	return &Client{
-		hub:      hub,
-		conn:     conn,
-		send:     make(chan []byte, 512),
-		UserID:   userID,
-		UserName: userName,
+		hub:       hub,
+		conn:      conn,
+		send:      make(chan []byte, 512),
+		UserID:    userID,
+		UserName:  userName,
+		UserColor: userColor,
 	}
 }
 
@@ -79,6 +81,7 @@ func (c *Client) ReadPump() {
 			}
 			payload.UserID = c.UserID
 			payload.UserName = c.UserName
+			payload.Color = c.UserColor
 			c.hub.SetFocus(payload)
 
 		case "sheet.op":

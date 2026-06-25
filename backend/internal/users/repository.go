@@ -17,13 +17,13 @@ func NewRepository(db *pgxpool.Pool) *Repository {
 }
 
 func (r *Repository) FindByEmail(ctx context.Context, email string) (*User, error) {
-	query := `SELECT id, email, password_hash, name, role, is_blocked, last_active_at, created_at, updated_at
+	query := `SELECT id, email, password_hash, name, role, color, is_blocked, last_active_at, created_at, updated_at
 		FROM users WHERE email = $1`
 
 	var u User
 	err := r.db.QueryRow(ctx, query, email).Scan(
 		&u.ID, &u.Email, &u.PasswordHash, &u.Name,
-		&u.Role, &u.IsBlocked, &u.LastActiveAt,
+		&u.Role, &u.Color, &u.IsBlocked, &u.LastActiveAt,
 		&u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
@@ -37,13 +37,13 @@ func (r *Repository) FindByEmail(ctx context.Context, email string) (*User, erro
 }
 
 func (r *Repository) FindByID(ctx context.Context, id int64) (*User, error) {
-	query := `SELECT id, email, password_hash, name, role, is_blocked, last_active_at, created_at, updated_at
+	query := `SELECT id, email, password_hash, name, role, color, is_blocked, last_active_at, created_at, updated_at
 		FROM users WHERE id = $1`
 
 	var u User
 	err := r.db.QueryRow(ctx, query, id).Scan(
 		&u.ID, &u.Email, &u.PasswordHash, &u.Name,
-		&u.Role, &u.IsBlocked, &u.LastActiveAt,
+		&u.Role, &u.Color, &u.IsBlocked, &u.LastActiveAt,
 		&u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
@@ -57,7 +57,7 @@ func (r *Repository) FindByID(ctx context.Context, id int64) (*User, error) {
 }
 
 func (r *Repository) FindAll(ctx context.Context) ([]User, error) {
-	query := `SELECT id, email, password_hash, name, role, is_blocked, last_active_at, created_at, updated_at
+	query := `SELECT id, email, password_hash, name, role, color, is_blocked, last_active_at, created_at, updated_at
 		FROM users ORDER BY id`
 
 	rows, err := r.db.Query(ctx, query)
@@ -71,7 +71,7 @@ func (r *Repository) FindAll(ctx context.Context) ([]User, error) {
 		var u User
 		if err := rows.Scan(
 			&u.ID, &u.Email, &u.PasswordHash, &u.Name,
-			&u.Role, &u.IsBlocked, &u.LastActiveAt,
+			&u.Role, &u.Color, &u.IsBlocked, &u.LastActiveAt,
 			&u.CreatedAt, &u.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan user: %w", err)
@@ -83,16 +83,16 @@ func (r *Repository) FindAll(ctx context.Context) ([]User, error) {
 }
 
 func (r *Repository) Create(ctx context.Context, req CreateUserRequest, passwordHash string) (*User, error) {
-	query := `INSERT INTO users (email, password_hash, name, role)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, email, password_hash, name, role, is_blocked, last_active_at, created_at, updated_at`
+	query := `INSERT INTO users (email, password_hash, name, role, color)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id, email, password_hash, name, role, color, is_blocked, last_active_at, created_at, updated_at`
 
 	var u User
 	err := r.db.QueryRow(ctx, query,
-		req.Email, passwordHash, req.Name, req.Role,
+		req.Email, passwordHash, req.Name, req.Role, "#4a90d9",
 	).Scan(
 		&u.ID, &u.Email, &u.PasswordHash, &u.Name,
-		&u.Role, &u.IsBlocked, &u.LastActiveAt,
+		&u.Role, &u.Color, &u.IsBlocked, &u.LastActiveAt,
 		&u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
@@ -136,13 +136,13 @@ func (r *Repository) Update(ctx context.Context, id int64, req UpdateUserRequest
 		argIdx++
 	}
 
-	query += fmt.Sprintf(" WHERE id = $%d RETURNING id, email, password_hash, name, role, is_blocked, last_active_at, created_at, updated_at", argIdx)
+	query += fmt.Sprintf(" WHERE id = $%d RETURNING id, email, password_hash, name, role, color, is_blocked, last_active_at, created_at, updated_at", argIdx)
 	args = append(args, id)
 
 	var u User
 	err = r.db.QueryRow(ctx, query, args...).Scan(
 		&u.ID, &u.Email, &u.PasswordHash, &u.Name,
-		&u.Role, &u.IsBlocked, &u.LastActiveAt,
+		&u.Role, &u.Color, &u.IsBlocked, &u.LastActiveAt,
 		&u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {

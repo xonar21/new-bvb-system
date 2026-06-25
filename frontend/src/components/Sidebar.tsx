@@ -13,11 +13,11 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
   const { isConnected, onlineUsers } = useWSStore()
   const syncMutation = useSync()
   const [syncMsg, setSyncMsg] = useState<string | null>(null)
-  const isRoot = user?.role === 'root'
+  const isAdmin = user?.role === 'admin' || user?.role === 'root'
 
   const tabs = [
     { id: 'loads', label: 'Loads' },
-    ...(isRoot ? [
+    ...(isAdmin ? [
       { id: 'users', label: 'Users Management' },
       { id: 'allowed-ips', label: 'Allowed IPs' },
     ] : []),
@@ -54,7 +54,7 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
         }}
       >
         <div style={{ fontWeight: 700, fontSize: '16px' }}>BVB Freight</div>
-        <div style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>Dashboard</div>
+        {isAdmin && <div style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>Dashboard</div>}
       </div>
 
       <nav style={{ flex: 1, padding: '8px 0' }}>
@@ -84,7 +84,7 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
             {tab.label}
           </button>
         ))}
-        {isRoot && (
+        {isAdmin && (
           <div style={{ padding: '16px 16px 0' }}>
             <button
               onClick={handleSync}

@@ -138,8 +138,15 @@ func main() {
 			return c.Status(401).JSON(fiber.Map{"error": "invalid or expired token"})
 		}
 
+		// Lookup user from DB to get color
+		user, err := userRepo.FindByID(c.Context(), claims.UserID)
+		userColor := "#4a90d9" // default fallback
+		if err == nil && user != nil {
+			userColor = user.Color
+		}
+
 		handler := websocket.New(func(conn *websocket.Conn) {
-			ws.HandleWS(conn, wsHub, claims.UserID, claims.Email)
+			ws.HandleWS(conn, wsHub, claims.UserID, claims.Email, userColor)
 		})
 		return handler(c)
 	})

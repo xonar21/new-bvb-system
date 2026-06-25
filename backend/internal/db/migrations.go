@@ -50,6 +50,7 @@ func Migrate(pool *pgxpool.Pool) {
 		password_hash   VARCHAR(255) NOT NULL,
 		name            VARCHAR(255) NOT NULL,
 		role            VARCHAR(50) DEFAULT 'user',
+		color           VARCHAR(7) DEFAULT '#4a90d9',
 		is_blocked      BOOLEAN DEFAULT FALSE,
 		last_active_at  TIMESTAMPTZ,
 		created_at      TIMESTAMPTZ DEFAULT NOW(),
@@ -160,12 +161,13 @@ func seedUsers(pool *pgxpool.Pool, ctx context.Context) {
 		Password string
 		Name     string
 		Role     string
+		Color    string
 	}
 
 	users := []seedUser{
-		{"user1@bvb.local", "password1", "User One", "user"},
-		{"user2@bvb.local", "password2", "User Two", "user"},
-		{"root@bvb.local", "root123", "Root Admin", "root"},
+		{"admin@bvb.local", "admin123", "Admin User", "admin", "#2ecc71"},
+		{"editor@bvb.local", "editor123", "Editor User", "editor", "#4a90d9"},
+		{"viewer@bvb.local", "viewer123", "Viewer User", "viewer", "#e67e22"},
 	}
 
 	for _, u := range users {
@@ -182,9 +184,9 @@ func seedUsers(pool *pgxpool.Pool, ctx context.Context) {
 		}
 
 		_, err = pool.Exec(ctx,
-			`INSERT INTO users (email, password_hash, name, role) VALUES ($1, $2, $3, $4)
-			 ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash`,
-			u.Email, string(hash), u.Name, u.Role)
+			`INSERT INTO users (email, password_hash, name, role, color) VALUES ($1, $2, $3, $4, $5)
+			 ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash, color = EXCLUDED.color`,
+			u.Email, string(hash), u.Name, u.Role, u.Color)
 		if err != nil {
 			log.Printf("Seed upsert failed for %s: %v", u.Email, err)
 			continue

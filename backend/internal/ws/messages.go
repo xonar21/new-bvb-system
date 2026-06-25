@@ -22,6 +22,7 @@ type CellFocusPayload struct {
 	Action   string `json:"action"`
 	UserID   int64  `json:"user_id,omitempty"`
 	UserName string `json:"user_name,omitempty"`
+	Color    string `json:"color,omitempty"`
 }
 
 type PresenceList struct {

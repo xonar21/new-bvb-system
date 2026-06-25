@@ -7,7 +7,12 @@ function loadFromStorage(): { token: string | null; user: User | null } {
   const userRaw = localStorage.getItem('auth_user')
   if (token && userRaw) {
     try {
-      return { token, user: JSON.parse(userRaw) as User }
+      const user = JSON.parse(userRaw) as User
+      // Ensure color field exists (for users who logged in before color was added)
+      if (!user.color) {
+        user.color = '#4a90d9'
+      }
+      return { token, user }
     } catch {
       localStorage.removeItem('auth_token')
       localStorage.removeItem('auth_user')

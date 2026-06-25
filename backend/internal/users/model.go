@@ -8,6 +8,7 @@ type User struct {
 	PasswordHash string     `json:"-"`
 	Name         string     `json:"name"`
 	Role         string     `json:"role"`
+	Color        string     `json:"color"`
 	IsBlocked    bool       `json:"is_blocked"`
 	LastActiveAt *time.Time `json:"last_active_at"`
 	CreatedAt    time.Time  `json:"created_at"`

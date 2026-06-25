@@ -78,6 +78,7 @@ export interface User {
   email: string
   name: string
   role: string
+  color: string
   is_blocked: boolean
   last_active_at: string | null
   created_at: string
@@ -126,6 +127,7 @@ export interface CellFocusPayload {
   action: 'focus' | 'blur' | 'editing'
   user_id?: number
   user_name?: string
+  color?: string
 }
 
 export interface AllowedIp {

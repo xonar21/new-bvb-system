@@ -8,6 +8,7 @@ interface OnlineUser {
 export interface CellFocusInfo {
   user_id: number
   user_name: string
+  color: string
   load_id: number
   field: string
   editing?: boolean
@@ -39,13 +40,15 @@ interface WSState {
   removeCellFocus: (loadId: number, field: string) => void
   clearOfflineUserFocuses: (onlineUserIds: Set<number>) => void
   /** Bulk-replace focusedCells from a server snapshot (sent on WS connect). */
-  applyFocusSnapshot: (focuses: Array<{ load_id: number; field: string; user_id?: number; user_name?: string; action: string }>) => void
+  applyFocusSnapshot: (focuses: Array<{ load_id: number; field: string; user_id?: number; user_name?: string; color?: string; action: string }>) => void
   /** Register/unregister the Fortune Sheet applyOp callback from LuckysheetBoard. */
   setApplySheetOp: (fn: ((ops: any[]) => void) | null) => void
   /** Register/unregister the cell.update patch callback from LuckysheetBoard. */
   setApplyCellUpdate: (fn: ((loadId: number, field: string, value: any) => void) | null) => void
   /** Signal that the Fortune Sheet needs a full data rebuild (e.g. after reconnect or sync). */
   requestFullRefresh: () => void
+  /** Get all users currently focused on a specific row (by loadId) */
+  getRowUsers: (loadId: number) => Array<{ user_id: number; user_name: string; color: string }>
 }
 
 export const useWSStore = create<WSState>((set) => ({
@@ -63,13 +66,18 @@ export const useWSStore = create<WSState>((set) => ({
 
   setSendMessage: (fn) => set({ sendMessage: fn }),
 
-  setCellFocus: (info) =>
-    set((state) => ({
+  setCellFocus: (info) => {
+    const fullInfo: CellFocusInfo = {
+      ...info,
+      color: info.color || '#4a90d9',
+    }
+    return set((state) => ({
       focusedCells: {
         ...state.focusedCells,
-        [cellFocusKey(info.load_id, info.field)]: info,
+        [cellFocusKey(info.load_id, info.field)]: fullInfo,
       },
-    })),
+    }))
+  },
 
   removeCellFocus: (loadId, field) =>
     set((state) => {
@@ -101,6 +109,7 @@ export const useWSStore = create<WSState>((set) => ({
         next[key] = {
           user_id: f.user_id,
           user_name: f.user_name || `User ${f.user_id}`,
+          color: f.color || '#4a90d9',
           load_id: f.load_id,
           field: f.field,
           editing: f.action === 'editing',
@@ -114,4 +123,19 @@ export const useWSStore = create<WSState>((set) => ({
   setApplyCellUpdate: (fn) => set({ applyCellUpdate: fn }),
 
   requestFullRefresh: () => set((s) => ({ fullRefreshSeq: s.fullRefreshSeq + 1 })),
+
+  getRowUsers: (loadId: number) => {
+    const state = useWSStore.getState()
+    const seen = new Map<number, { user_id: number; user_name: string; color: string }>()
+    for (const focus of Object.values(state.focusedCells)) {
+      if (focus.load_id === loadId && !seen.has(focus.user_id)) {
+        seen.set(focus.user_id, {
+          user_id: focus.user_id,
+          user_name: focus.user_name,
+          color: focus.color,
+        })
+      }
+    }
+    return Array.from(seen.values())
+  },
 }))

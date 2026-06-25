@@ -23,10 +23,18 @@ function AppContent() {
   const { token, user, logout } = useAuthStore()
   const [activeTab, setActiveTab] = useState('loads')
   const [ipDenied, setIpDenied] = useState<boolean | null>(null)
+  const isAdmin = user?.role === 'admin' || user?.role === 'root'
 
   useWebSocket(token)
 
   const { data: ipCheck, isLoading: ipCheckLoading } = useIpCheck()
+
+  // Redirect to loads if user tries to access admin-only tabs
+  useEffect(() => {
+    if ((activeTab === 'users' || activeTab === 'allowed-ips') && !isAdmin) {
+      setActiveTab('loads')
+    }
+  }, [activeTab, isAdmin])
 
   useEffect(() => {
     if (ipCheck) {

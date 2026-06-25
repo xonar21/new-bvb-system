@@ -135,6 +135,7 @@ export function useWebSocket(token: string | null) {
                 setCellFocus({
                   user_id: p.user_id!,
                   user_name: p.user_name || `User ${p.user_id}`,
+                  color: p.color || '#4a90d9',
                   load_id: p.load_id,
                   field: p.field,
                   editing: p.action === 'editing',

@@ -6,16 +6,6 @@ import { useAuthStore } from '../../store/authStore'
 import { useSelectionStore, useIsCellSelected } from '../../store/selectionStore'
 import { useCellStore, COLUMN_TO_FIELD } from '../../store/cellStore'
 
-const USER_COLORS = [
-  '#4a90d9', '#e67e22', '#2ecc71', '#9b59b6',
-  '#e74c3c', '#1abc9c', '#f39c12', '#3498db',
-  '#8e44ad', '#16a085', '#d35400', '#27ae60',
-]
-
-function getUserColor(userId: number): string {
-  return USER_COLORS[userId % USER_COLORS.length]
-}
-
 // Global mutable ref shared across all LoadCell instances
 const loadMyFocusRef: { current: { loadId: number; field: string } | null } = { current: null }
 
@@ -25,6 +15,7 @@ interface LoadCellProps {
   colKey?: string
   onCellSelect?: (loadId: number, colKey: string) => void
   fillHeight?: boolean
+  isReadOnly?: boolean
 }
 
 function blendWithBlue(bg: string): string {
@@ -67,7 +58,7 @@ function getCellStyle(load: Load, colKey?: string): React.CSSProperties {
   }
 }
 
-function LoadCellInner({ cell, onUpdate, colKey, onCellSelect, fillHeight }: LoadCellProps) {
+function LoadCellInner({ cell, onUpdate, colKey, onCellSelect, fillHeight, isReadOnly }: LoadCellProps) {
   const [editing, setEditing] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -98,7 +89,7 @@ function LoadCellInner({ cell, onUpdate, colKey, onCellSelect, fillHeight }: Loa
   const isFocused = focusInfo !== undefined
   const isFocusedByOther = isFocused && focusInfo!.user_id !== currentUser?.id
   const isEditingByOther = isFocusedByOther && focusInfo!.editing
-  const focusColor = isFocused ? getUserColor(focusInfo!.user_id) : undefined
+  const focusColor = isFocused ? (focusInfo!.color || '#4a90d9') : undefined
   const isBold = cell.row.original.is_bold
   const isLocked = cell.row.original.is_lock
   const isMCC = cell.row.original.is_mcc
@@ -163,6 +154,7 @@ function LoadCellInner({ cell, onUpdate, colKey, onCellSelect, fillHeight }: Loa
     setCellFocus({
       user_id: currentUser.id,
       user_name: currentUser.email,
+      color: currentUser.color || '#4a90d9',
       load_id: loadId,
       field,
     })
@@ -171,11 +163,11 @@ function LoadCellInner({ cell, onUpdate, colKey, onCellSelect, fillHeight }: Loa
   }, [isFocusedByOther, currentUser, sendMessage, loadId, field, sendFocus, onCellSelect, colKey])
 
   const handleDoubleClick = useCallback(() => {
-    // Prevent editing gate_code (read-only) or locked/editing-by-other cells
-    if (isGateCode || isLocked || isFocusedByOther) return
+    // Prevent editing for read-only users, gate_code, locked, or editing-by-other cells
+    if (isReadOnly || isGateCode || isLocked || isFocusedByOther) return
     sendFocus('editing')
     setEditing(true)
-  }, [isGateCode, isLocked, isFocusedByOther, sendFocus])
+  }, [isReadOnly, isGateCode, isLocked, isFocusedByOther, sendFocus])
 
   const finishEditing = useCallback(() => {
     setEditing(false)
@@ -301,6 +293,7 @@ function LoadCellInner({ cell, onUpdate, colKey, onCellSelect, fillHeight }: Loa
       setCellFocus({
         user_id: currentUser.id,
         user_name: currentUser.email,
+        color: currentUser.color,
         load_id: loadId,
         field,
       })
@@ -368,7 +361,7 @@ function LoadCellInner({ cell, onUpdate, colKey, onCellSelect, fillHeight }: Loa
         position: 'relative',
         display: fillHeight ? 'flex' : undefined,
         alignItems: fillHeight ? 'center' : undefined,
-        cursor: formatPainterActive ? 'cell' : (isGateCode || isLocked || isFocusedByOther ? 'default' : 'pointer'),
+        cursor: formatPainterActive ? 'cell' : (isReadOnly || isGateCode || isLocked || isFocusedByOther ? 'default' : 'pointer'),
         fontWeight: cellStyle.fontWeight ?? (isBold ? 700 : 400),
         fontStyle: cellStyle.fontStyle ?? undefined,
         textDecoration: cellStyle.textDecoration ?? undefined,
@@ -388,15 +381,17 @@ function LoadCellInner({ cell, onUpdate, colKey, onCellSelect, fillHeight }: Loa
         userSelect: 'none',
       }}
       title={
-        isLocked
-          ? 'Locked'
-          : isEditingByOther
-            ? `${focusInfo!.user_name} is editing this cell`
-            : isFocusedByOther
-              ? `${focusInfo!.user_name} is viewing this cell`
-              : isFocused
-                ? 'Click to focus, double-click to edit'
-                : 'Click to focus'
+        isReadOnly
+          ? 'Read-only view'
+          : isLocked
+            ? 'Locked'
+            : isEditingByOther
+              ? `${focusInfo!.user_name} is editing this cell`
+              : isFocusedByOther
+                ? `${focusInfo!.user_name} is viewing this cell`
+                : isFocused
+                  ? 'Click to focus, double-click to edit'
+                  : 'Click to focus'
       }
     >
       {cell.column.id === 'pick_up_date' ? formatDate(cell.getValue() as string | null) : (cell.getValue() as string)}

@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash   VARCHAR(255) NOT NULL,
     name            VARCHAR(255) NOT NULL,
     role            VARCHAR(50) DEFAULT 'user',
+    color           VARCHAR(7) DEFAULT '#4a90d9',
     is_blocked      BOOLEAN DEFAULT FALSE,
     last_active_at  TIMESTAMPTZ,
     created_at      TIMESTAMPTZ DEFAULT NOW(),
@@ -99,8 +100,9 @@ VALUES (1, '{}', '{}')
 ON CONFLICT (id) DO NOTHING;
 
 -- Seed test users (passwords will be hashed by Go app on first run)
-INSERT INTO users (email, password_hash, name, role) VALUES
-    ('user1@bvb.local', '', 'User One', 'user'),
-    ('user2@bvb.local', '', 'User Two', 'user'),
-    ('root@bvb.local', '', 'Root Admin', 'root')
+-- Roles: admin (full access), editor (can edit loads only), viewer (read-only)
+INSERT INTO users (email, password_hash, name, role, color) VALUES
+    ('admin@bvb.local', '', 'Admin User', 'admin', '#2ecc71'),
+    ('editor@bvb.local', '', 'Editor User', 'editor', '#4a90d9'),
+    ('viewer@bvb.local', '', 'Viewer User', 'viewer', '#e67e22')
 ON CONFLICT (email) DO NOTHING;

@@ -18,6 +18,8 @@ import { RowResizeHandle } from './RowHeaderColumn'
 import { useSelectionStore } from '../../store/selectionStore'
 import { useCellStore, COLUMN_TO_FIELD, EDITABLE_COLS } from '../../store/cellStore'
 import { useWSStore } from '../../store/wsStore'
+import { useAuthStore } from '../../store/authStore'
+import { lightenColor } from '../../utils/colors'
 import type { BulkFormatCell, CellFormat, Load } from '../../types/Load'
 
 function useDebounce<T>(value: T, delay: number): T {
@@ -84,6 +86,9 @@ export function LoadsBoard() {
   const { data: loads, isLoading, isError, error } = useLoads(filters)
   const updateMutation = useUpdateLoad()
   const sendMessage = useWSStore((s) => s.sendMessage)
+  const focusedCells = useWSStore((s) => s.focusedCells)
+  const user = useAuthStore((s) => s.user)
+  const isReadOnly = user?.role === 'viewer'
 
   const {
     getColumnWidth,
@@ -443,12 +448,28 @@ export function LoadsBoard() {
                 const hasExplicitHeight = rowIdx in rowHeights
                 const actualRowNum = (pageSize > 0 ? pageIndex * actualPageSize : 0) + rowIdx + 1
                 const rowLocked = isRowLocked(rowIdx)
+                const rowUsers = Object.values(focusedCells)
+                  .filter((f) => f.load_id === row.original.id)
+                  .reduce((acc, f) => {
+                    const existing = acc.find((u) => u.user_id === f.user_id)
+                    if (!existing) {
+                      acc.push({
+                        user_id: f.user_id,
+                        user_name: f.user_name,
+                        color: f.color || '#4a90d9',
+                      })
+                    }
+                    return acc
+                  }, [] as Array<{ user_id: number; user_name: string; color: string }>)
                 return (
                   <tr
                     key={row.id}
                     style={{
                       borderBottom: '1px solid #eee',
-                      background: row.original.is_mcc ? '#fffef5' : undefined,
+                      borderLeft: rowUsers.length > 0 ? `3px solid ${rowUsers[0].color}` : undefined,
+                      background: rowUsers.length > 0
+                        ? lightenColor(rowUsers[0].color)
+                        : row.original.is_mcc ? '#fffef5' : undefined,
                       ...(hasExplicitHeight ? { height: `${rHeight}px` } : {}),
                     }}
                   >
@@ -461,12 +482,57 @@ export function LoadsBoard() {
                       background: rowLocked ? '#fff8e1' : '#f5f5f5',
                       position: 'relative', userSelect: 'none',
                       height: `${rHeight}px`, lineHeight: `${rHeight}px`,
-                      overflow: 'hidden',
+                      overflow: 'visible',
                     }}
                       title={rowLocked ? 'Row locked by another user' : `Row ${actualRowNum}`}
                     >
                       {actualRowNum}
                       <RowResizeHandle rowIdx={rowIdx} />
+                      {rowUsers.length > 0 && (
+                        <div style={{
+                          position: 'absolute',
+                          right: '-4px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '2px',
+                          zIndex: 10,
+                        }}>
+                          {rowUsers.slice(0, 3).map((user) => (
+                            <div
+                              key={user.user_id}
+                              style={{
+                                background: user.color,
+                                color: '#fff',
+                                padding: '2px 6px',
+                                borderRadius: '3px',
+                                fontSize: '10px',
+                                fontFamily: 'sans-serif',
+                                whiteSpace: 'nowrap',
+                                border: `1px solid ${user.color}`,
+                                boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                              }}
+                              title={user.user_name}
+                            >
+                              {user.user_name.split('@')[0]}
+                            </div>
+                          ))}
+                          {rowUsers.length > 3 && (
+                            <div style={{
+                              background: '#999',
+                              color: '#fff',
+                              padding: '2px 6px',
+                              borderRadius: '3px',
+                              fontSize: '10px',
+                              border: '1px solid #999',
+                              fontWeight: 'bold',
+                            }}>
+                              +{rowUsers.length - 3}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </td>
                     {row.getVisibleCells().map((cell) => {
                       const colId = cell.column.id
@@ -492,6 +558,7 @@ export function LoadsBoard() {
                             colKey={columnToColKey[cell.column.id]}
                             onCellSelect={handleCellSelect}
                             fillHeight={hasExplicitHeight}
+                            isReadOnly={isReadOnly}
                           />
                         </td>
                       )
