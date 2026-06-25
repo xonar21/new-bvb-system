@@ -178,7 +178,6 @@ function sameSnapshot(a: CellSnapshot, b: CellSnapshot): boolean {
 const MemoWorkbook = memo(Workbook);
 
 export function LuckysheetBoard() {
-  console.log('[RENDER] LuckysheetBoard rendering');
   const queryClient = useQueryClient();
   const { data: loads, isLoading, isError, error } = useLoads();
   const deleteMutation = useDeleteLoad();
@@ -186,8 +185,6 @@ export function LuckysheetBoard() {
   const focusedCells = useWSStore((s) => s.focusedCells);
   const setApplySheetOp = useWSStore((s) => s.setApplySheetOp);
   const fullRefreshSeq = useWSStore((s) => s.fullRefreshSeq);
-  const setCellFocus = useWSStore((s) => s.setCellFocus);
-  const removeCellFocus = useWSStore((s) => s.removeCellFocus);
   const currentUser = useAuthStore((s) => s.user);
 
   const [sheets, setSheets] = useState<any[]>([]);
@@ -197,10 +194,9 @@ export function LuckysheetBoard() {
   const lastMatrixRef = useRef<any[][]>([]);
   const workbookHostRef = useRef<HTMLDivElement | null>(null);
   const workbookRef = useRef<any>(null);
-  const myFocusRef = useRef<{ loadId: number; field: string } | null>(null);
+  const myFocusRef = useRef<{ row: number; col: number } | null>(null);
   const presenceKeysRef = useRef<Set<string>>(new Set());
   const isExternalUpdateRef = useRef(false);
-  const rowOverlayRef = useRef<HTMLDivElement | null>(null);
 
   // ── STABLE row→loadId map (source of truth for loadId lookup) ─────────────
   // This is built from `loads` (server data), NOT from lastMatrixRef.
@@ -222,12 +218,6 @@ export function LuckysheetBoard() {
 
   const deleteMutateRef = useRef(deleteMutation.mutate);
   deleteMutateRef.current = deleteMutation.mutate;
-
-  // Stable refs for self-focus highlighting (so we can show our own row color too).
-  const setCellFocusRef = useRef(setCellFocus);
-  setCellFocusRef.current = setCellFocus;
-  const removeCellFocusRef = useRef(removeCellFocus);
-  removeCellFocusRef.current = removeCellFocus;
 
   // ── applySheetOp: incoming sheet.op from other users ──────────────────────
   // Handles both value changes AND formatting (bold/color/etc.) via Fortune Sheet's
@@ -284,45 +274,30 @@ export function LuckysheetBoard() {
   }, [loads, fullRefreshSeq]);
 
   // ── STABLE: sendCurrentSelectionFocus ─────────────────────────────────────
+  // Presence is tracked by sheet COORDINATES (row/col), so it works on any cell
+  // — including empty ones with no backing load record. We broadcast our cursor
+  // to other users; we do NOT highlight our own cell (Fortune Sheet already shows
+  // our selection), which also keeps our own cell freely editable.
   const sendCurrentSelectionFocus = useCallback(() => {
     const send = sendMsgRef.current;
     const user = currentUserRef.current;
-    if (!send || !user || !workbookRef.current) { console.log('[FOCUS] abort: send/user/wb', !!send, !!user, !!workbookRef.current); return; }
+    if (!send || !user || !workbookRef.current) return;
     const selection = workbookRef.current.getSelection()?.[0];
-    console.log('[FOCUS] selection:', JSON.stringify(selection));
-    if (!selection || !Array.isArray(selection.row) || !Array.isArray(selection.column)) { console.log('[FOCUS] abort: bad selection'); return; }
+    if (!selection || !Array.isArray(selection.row) || !Array.isArray(selection.column)) return;
 
     const rowIdx = Number(selection.row[0]);
     const colIdx = Number(selection.column[0]);
-    // Column 0 is a real, visible data column (pick_up_date_col1) — do NOT skip it.
-    if (Number.isNaN(rowIdx) || Number.isNaN(colIdx) || rowIdx < 0 || colIdx < 0 || colIdx >= columnKeys.length) { console.log('[FOCUS] abort: bad rc', rowIdx, colIdx); return; }
+    if (Number.isNaN(rowIdx) || Number.isNaN(colIdx) || rowIdx < 0 || colIdx < 0) return;
 
-    // Use stable map for loadId — immune to column-A paste corruption
-    const loadId = rowLoadIdMapRef.current.get(rowIdx);
-    if (!loadId) { console.log('[FOCUS] abort: no loadId for row', rowIdx); return; }
-    const field = String(columnKeys[colIdx]);
-
-    if (myFocusRef.current?.loadId === loadId && myFocusRef.current?.field === field) { console.log('[FOCUS] same cell, skip'); return; }
-    console.log('[FOCUS] SET self focus', { loadId, field, color: user.color, email: user.email });
+    if (myFocusRef.current?.row === rowIdx && myFocusRef.current?.col === colIdx) return;
     if (myFocusRef.current) {
       send(JSON.stringify({
         type: 'cell.focus',
-        payload: { load_id: myFocusRef.current.loadId, field: myFocusRef.current.field, action: 'blur' },
+        payload: { row: myFocusRef.current.row, col: myFocusRef.current.col, action: 'blur' },
       }));
-      // Clear our previous self-focus highlight locally.
-      removeCellFocusRef.current?.(myFocusRef.current.loadId, myFocusRef.current.field);
     }
-    myFocusRef.current = { loadId, field };
-    send(JSON.stringify({ type: 'cell.focus', payload: { load_id: loadId, field, action: 'focus' } }));
-    // Record our OWN focus locally so we see our own row color + email badge
-    // (the server echo for our own focus is intentionally dropped in useWebSocket).
-    setCellFocusRef.current?.({
-      user_id: user.id,
-      user_name: user.email,
-      color: user.color || '#4a90d9',
-      load_id: loadId,
-      field,
-    });
+    myFocusRef.current = { row: rowIdx, col: colIdx };
+    send(JSON.stringify({ type: 'cell.focus', payload: { row: rowIdx, col: colIdx, action: 'focus' } }));
   }, []); // EMPTY DEPS — stable forever
 
   // ── STABLE: detectAndSendChanges ────────────────────────────────────────
@@ -330,17 +305,12 @@ export function LuckysheetBoard() {
   
   // Update the ref whenever needed
   useEffect(() => {
-    console.log('[DETECT] Setting up detectAndSendChangesRef');
     detectAndSendChangesRef.current = (currentMatrix: any[][]) => {
-      console.log('[DETECT] Called with matrix rows:', currentMatrix.length);
       const send = sendMsgRef.current;
-      console.log('[DETECT] send function:', !!send, 'lastMatrix length:', lastMatrixRef.current.length);
       if (isExternalUpdateRef.current) {
-        console.log('[DETECT] Skipping - external update');
         return;
       }
       if (lastMatrixRef.current.length === 0) {
-        console.log('[DETECT] First run - saving matrix');
         lastMatrixRef.current = currentMatrix;
         return;
       }
@@ -384,7 +354,6 @@ export function LuckysheetBoard() {
         }
       }
       if (changes.length > 0 || styleChanges.length > 0) {
-        console.log('[DETECT] Found changes:', changes.length, 'style:', styleChanges.length);
         if (send) {
           if (changes.length === 1) {
             send(JSON.stringify({ type: 'cell.update', payload: changes[0] }))
@@ -404,10 +373,8 @@ export function LuckysheetBoard() {
 
   // ── STABLE: onChange ──────────────────────────────────────────────────────
   const onChange = useCallback((data: any[]) => {
-    console.log('[onChange] called with data:', !!data);
     if (!data || data.length === 0) return;
     const newMatrix = toMatrix(data[0]);
-    console.log('[onChange] matrix rows:', newMatrix.length);
     if (isExternalUpdateRef.current) {
       lastMatrixRef.current = newMatrix;
       sendCurrentSelectionFocus();
@@ -596,8 +563,6 @@ export function LuckysheetBoard() {
             if (style.fontSize != null && Number.isNaN(style.fontSize)) delete style.fontSize;
 
             if (Object.keys(style).length > 0) {
-              // Debug: see exact op shape for style changes
-              console.log('[STYLE op]', { opType, path, value: op?.value, mapped: style });
               styleChanges.push({ load_id: loadId, field, style });
             }
           }
@@ -669,7 +634,7 @@ export function LuckysheetBoard() {
       if (myFocusRef.current && send) {
         send(JSON.stringify({
           type: 'cell.focus',
-          payload: { load_id: myFocusRef.current.loadId, field: myFocusRef.current.field, action: 'blur' },
+          payload: { row: myFocusRef.current.row, col: myFocusRef.current.col, action: 'blur' },
         }));
       }
     };
@@ -679,113 +644,50 @@ export function LuckysheetBoard() {
   // focusedCells changes trigger this effect and the presence bar JSX.
   // MemoWorkbook is NOT re-rendered (all its props are stable).
   useEffect(() => {
-    console.log('[PRESENCE] effect run, focusedCells:', Object.values(focusedCells).length, 'wb:', !!workbookRef.current, 'addPresences:', typeof workbookRef.current?.addPresences);
     if (!workbookRef.current) return
+    const sheetId = workbookRef.current.getSheet?.()?.id ?? 'sheet-1';
     const nextKeys = new Set<string>();
 
     Object.values(focusedCells).forEach((f) => {
-      // Use rowLoadIdMapRef which correctly maps row index → load_id
-      const rowIdx = Array.from(rowLoadIdMapRef.current.entries()).find(([_, id]) => id === f.load_id)?.[0];
-      const colIdx = columnKeys.indexOf(f.field as any);
-      console.log('[PRESENCE] entry', f.user_name, 'load', f.load_id, '→ row', rowIdx, 'col', colIdx, 'color', f.color);
-      if (rowIdx === undefined || colIdx < 0) return
-      const key = `${f.user_id}:${f.load_id}:${f.field}`;
+      const key = String(f.user_id);
       nextKeys.add(key);
       if (typeof workbookRef.current?.addPresences === 'function') {
         workbookRef.current?.addPresences([{
-          sheetId: 'sheet-1',
+          sheetId,
           username: f.user_name,
           userId: String(f.user_id),
           color: f.color || getUserColor(f.user_id),
-          selection: { r: rowIdx, c: colIdx },
+          selection: { r: f.row, c: f.col },
         } as any]);
-        console.log('[PRESENCE] addPresences called for', f.user_name);
       }
     });
 
     for (const key of presenceKeysRef.current) {
       if (!nextKeys.has(key)) {
-        const userId = key.split(':')[0];
-        workbookRef.current?.removePresences?.([{ userId } as any]);
+        workbookRef.current?.removePresences?.([{ userId: key } as any]);
       }
     }
     presenceKeysRef.current = nextKeys;
   }, [focusedCells]);
 
-  // ── Full-row highlight overlay ──────────────────────────────────────────────
-  // Fortune Sheet renders to a canvas, so we can't style rows via CSS. Instead we
-  // mirror its native ".fortune-presence-selection" cell markers (which already
-  // track scroll) into full-width colored bars spanning the whole data row.
-  // A rAF loop keeps the bars glued to the rows while scrolling.
+  // ── Presence styling: single-cell color + email only on hover ──────────────
+  // Fortune Sheet's native presence renders a single-cell box (.fortune-presence-selection)
+  // with a permanent username label (.fortune-presence-username). We override the CSS so:
+  //   • the colored cell box stays visible (single cell, not whole row)
+  //   • the email label is hidden by default and shown only when hovering the cell
   useEffect(() => {
-    let raf = 0;
-    const sync = () => {
-      raf = requestAnimationFrame(sync);
-      const host = workbookHostRef.current;
-      const overlay = rowOverlayRef.current;
-      if (!host || !overlay) return;
-
-      const area = host.querySelector('.luckysheet-cell-sheettable') as HTMLElement | null;
-      const presenceEls = host.querySelectorAll('.fortune-presence-selection');
-      // Throttled debug: log only when the presence-element count changes.
-      if (presenceEls.length !== (sync as any)._lastCount) {
-        (sync as any)._lastCount = presenceEls.length;
-        console.log('[OVERLAY] presence DOM elements:', presenceEls.length, 'area found:', !!area);
-      }
-      if (!area || presenceEls.length === 0) {
-        if (overlay.childElementCount > 0) overlay.replaceChildren();
-        return;
-      }
-
-      const hostRect = host.getBoundingClientRect();
-      const areaRect = area.getBoundingClientRect();
-      const areaLeft = areaRect.left - hostRect.left;
-      const areaTop = areaRect.top - hostRect.top;
-      const areaBottom = areaRect.bottom - hostRect.top;
-      const areaWidth = areaRect.width;
-
-      const seen = new Set<string>();
-      presenceEls.forEach((el) => {
-        const pe = el as HTMLElement;
-        const rect = pe.getBoundingClientRect();
-        const labelEl = pe.querySelector('.fortune-presence-username') as HTMLElement | null;
-        const color = pe.style.borderColor || (labelEl ? getComputedStyle(labelEl).backgroundColor : '#4a90d9');
-        const name = labelEl?.textContent || '';
-        const top = rect.top - hostRect.top;
-        const height = rect.height;
-
-        // Skip rows scrolled out of the visible data area.
-        if (top + height <= areaTop || top >= areaBottom) return;
-
-        const key = name || String(Math.round(top));
-        seen.add(key);
-
-        let bar = overlay.querySelector<HTMLElement>(`[data-bar="${CSS.escape(key)}"]`);
-        if (!bar) {
-          bar = document.createElement('div');
-          bar.setAttribute('data-bar', key);
-          bar.style.position = 'absolute';
-          overlay.appendChild(bar);
-        }
-        const clampedTop = Math.max(top, areaTop);
-        const clampedBottom = Math.min(top + height, areaBottom);
-        bar.style.left = `${areaLeft}px`;
-        bar.style.width = `${areaWidth}px`;
-        bar.style.top = `${clampedTop}px`;
-        bar.style.height = `${Math.max(0, clampedBottom - clampedTop)}px`;
-        bar.style.background = color;
-        bar.style.opacity = '0.16';
-        bar.style.boxShadow = `inset 4px 0 0 0 ${color}`;
-      });
-
-      overlay.querySelectorAll('[data-bar]').forEach((b) => {
-        const k = (b as HTMLElement).getAttribute('data-bar')!;
-        if (!seen.has(k)) b.remove();
-      });
-    };
-    raf = requestAnimationFrame(sync);
-    return () => cancelAnimationFrame(raf);
-  }, [sheets.length]);
+    const styleId = 'presence-hover-style';
+    if (document.getElementById(styleId)) return;
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.textContent = `
+      .fortune-presence-selection { pointer-events: auto; }
+      .fortune-presence-username { display: none !important; }
+      .fortune-presence-selection:hover .fortune-presence-username { display: inline-block !important; }
+    `;
+    document.head.appendChild(style);
+    return () => { document.getElementById(styleId)?.remove(); };
+  }, []);
 
   // ── Scroll fix for wheel/trackpad ─────────────────────────────────────────
   useEffect(() => {
@@ -801,20 +703,6 @@ export function LuckysheetBoard() {
     host.addEventListener('wheel', onWheel, { passive: false });
     return () => host.removeEventListener('wheel', onWheel);
   }, [sheets.length]);
-
-  // ── Fortue Sheet document-level change listener ────────────────────────────
-  // Fortune Sheet may emit various events on document for changes
-  useEffect(() => {
-    const handleChange = (e: Event) => {
-      console.log('[DEBUG document event]', e.type, e);
-    };
-    const events = [
-      'fortune:change', 'fortune-sheet-change', 'luckysheetchange',
-      'sheet:change', 'data:change', 'cell:change'
-    ];
-    events.forEach(evt => document.addEventListener(evt, handleChange));
-    return () => events.forEach(evt => document.removeEventListener(evt, handleChange));
-  }, []);
 
 // ── Fallback: periodic check - try multiple methods to get data ────────────
   useEffect(() => {
@@ -874,8 +762,8 @@ export function LuckysheetBoard() {
           const c = f.color || getUserColor(f.user_id)
           return (
             <span
-              key={`${f.user_id}-${f.load_id}-${f.field}`}
-              title={`${f.user_name}: row ${f.load_id} / ${f.field}${f.editing ? ' (editing)' : ''}`}
+              key={f.user_id}
+              title={`${f.user_name}: row ${f.row + 1}, col ${f.col + 1}${f.editing ? ' (editing)' : ''}`}
               style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px', padding: '2px 8px', borderRadius: '4px', border: `1px solid ${c}`, background: `${c}14`, fontSize: '11px', fontWeight: 500 }}
             >
               <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: c }} />
@@ -908,10 +796,6 @@ export function LuckysheetBoard() {
             onOp={onOp}
             hooks={workbookHooks}
           />
-          {/* Full-row highlight overlay — bars are positioned imperatively by a rAF
-              loop that mirrors Fortune Sheet's native .fortune-presence-selection
-              elements (which already account for scroll). See the effect below. */}
-          <div ref={rowOverlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 3 }} />
         </div>
       ) : (
         <div style={{ padding: '40px', textAlign: 'center', fontFamily: 'sans-serif' }}>

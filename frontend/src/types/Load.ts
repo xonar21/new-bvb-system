@@ -122,8 +122,10 @@ export interface CellBulkUpdateWSPayload {
 }
 
 export interface CellFocusPayload {
-  load_id: number
-  field: string
+  row: number
+  col: number
+  load_id?: number
+  field?: string
   action: 'focus' | 'blur' | 'editing'
   user_id?: number
   user_name?: string

@@ -149,7 +149,9 @@ func (h *Hub) dropStale(stale []*Client) {
 
 // SetFocus records or removes a cell focus and re-broadcasts it to all clients.
 func (h *Hub) SetFocus(p CellFocusPayload) {
-	key := fmt.Sprintf("%d:%s", p.LoadID, p.Field)
+	// Key by user: each user has at most one focused cell. This makes moving
+	// between cells (and highlighting empty cells) work without stale entries.
+	key := fmt.Sprintf("user:%d", p.UserID)
 
 	h.focusMu.Lock()
 	if p.Action == "blur" {

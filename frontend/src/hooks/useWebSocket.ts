@@ -136,12 +136,12 @@ export function useWebSocket(token: string | null) {
                   user_id: p.user_id!,
                   user_name: p.user_name || `User ${p.user_id}`,
                   color: p.color || '#4a90d9',
-                  load_id: p.load_id,
-                  field: p.field,
+                  row: p.row,
+                  col: p.col,
                   editing: p.action === 'editing',
                 })
-              } else if (p.action === 'blur') {
-                removeCellFocus(p.load_id, p.field)
+              } else if (p.action === 'blur' && p.user_id) {
+                removeCellFocus(p.user_id)
               }
               break
             }

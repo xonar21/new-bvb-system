@@ -17,8 +17,12 @@ type PresenceUser struct {
 }
 
 type CellFocusPayload struct {
-	LoadID   int64  `json:"load_id"`
-	Field    string `json:"field"`
+	// Row/Col are sheet coordinates — used for presence highlighting so that
+	// even empty cells (with no backing load record) can be highlighted.
+	Row      int    `json:"row"`
+	Col      int    `json:"col"`
+	LoadID   int64  `json:"load_id,omitempty"`
+	Field    string `json:"field,omitempty"`
 	Action   string `json:"action"`
 	UserID   int64  `json:"user_id,omitempty"`
 	UserName string `json:"user_name,omitempty"`
