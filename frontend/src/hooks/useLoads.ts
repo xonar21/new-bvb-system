@@ -211,3 +211,55 @@ export function useBulkOrder() {
     },
   })
 }
+
+export function useCreateLoad() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (data: UpdateLoadRequest) => {
+      const res = await apiClient.post<{ load: Load }>('/api/loads', data)
+      return res.load
+    },
+
+    onMutate: async (data) => {
+      await queryClient.cancelQueries({ queryKey: ['loads'] })
+
+      const all = queryClient.getQueriesData<Load[]>({ queryKey: ['loads'] })
+      const prev = all
+
+      // Optimistically add new load to cache (without ID, will be replaced on success)
+      queryClient.setQueriesData<Load[]>({ queryKey: ['loads'] }, (old) => [
+        ...(old ?? []),
+        {
+          id: -1, // Temporary ID
+          ...data,
+          is_bold: data.is_bold ?? false,
+          is_mcc: false,
+          is_lock: false,
+          cell_formats: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        } as Load,
+      ])
+
+      return { prev }
+    },
+
+    onSuccess: (load) => {
+      // Replace optimistic entry with real one
+      queryClient.setQueriesData<Load[]>({ queryKey: ['loads'] }, (old) =>
+        old?.map((l) => (l.id === -1 ? load : l)) ?? [load],
+      )
+    },
+
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) {
+        const prevData = ctx.prev as [readonly unknown[], Load[] | undefined][]
+        prevData.forEach(([key, data]) => {
+          queryClient.setQueryData(key, data)
+        })
+      }
+      queryClient.invalidateQueries({ queryKey: ['loads'] })
+    },
+  })
+}
