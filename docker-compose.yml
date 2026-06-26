@@ -53,6 +53,7 @@ services:
       JWT_SECRET: "super_secret_key_change_in_prod"
       CORS_ORIGINS: "http://localhost:8080"
       REDIS_ADDR: "redis:6379"
+      SYNC_ENABLED: "true"
       GOOGLE_SHEET_ID: "1_Ri5kpUwYzIXW1VfJ4r7qARAEgYbLN4CSNLfMqkKoss"
       GOOGLE_SERVICE_ACCOUNT: "/app/service-account.json"
     volumes:
