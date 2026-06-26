@@ -8,6 +8,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"bvb-datatable/internal/loads"
@@ -30,6 +31,8 @@ const (
 )
 
 type SheetsSync struct {
+	mu         sync.Mutex
+	isSyncing  bool
 	client     *Client
 	db         *pgxpool.Pool
 	sheetID    string
@@ -51,6 +54,20 @@ func (s *SheetsSync) SetCallbacks(onComplete func(int, int), onError func(error)
 }
 
 func (s *SheetsSync) Sync(ctx context.Context) error {
+	s.mu.Lock()
+	if s.isSyncing {
+		s.mu.Unlock()
+		return fmt.Errorf("sync already in progress, please wait")
+	}
+	s.isSyncing = true
+	s.mu.Unlock()
+
+	defer func() {
+		s.mu.Lock()
+		s.isSyncing = false
+		s.mu.Unlock()
+	}()
+
 	start := time.Now()
 	log.Println("Starting Google Sheets sync...")
 
@@ -206,7 +223,7 @@ func (s *SheetsSync) fetchAndParseChunk(ctx context.Context, rangeStr string) ([
 }
 
 func (s *SheetsSync) parseRowData(cells []*sheets.CellData) (*RawLoad, bool) {
-	if len(cells) < 6 {
+	if len(cells) < 10 {
 		return nil, false
 	}
 
@@ -309,8 +326,8 @@ func (s *SheetsSync) parseRowData(cells []*sheets.CellData) (*RawLoad, bool) {
 }
 
 func (s *SheetsSync) isGreenRow(cells []*sheets.CellData) bool {
-	if len(cells) < 2 || cells[1] == nil || cells[1].EffectiveFormat == nil ||
-		cells[1].EffectiveFormat.BackgroundColor == nil {
+	if len(cells) < 1 || cells[0] == nil || cells[0].EffectiveFormat == nil ||
+		cells[0].EffectiveFormat.BackgroundColor == nil {
 		return false
 	}
 

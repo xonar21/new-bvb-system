@@ -1,7 +1,6 @@
 package sheets
 
 import (
-	"context"
 	"log"
 
 	"github.com/gofiber/fiber/v2"
@@ -20,16 +19,14 @@ func (h *Handler) TriggerSync(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "sync is not configured"})
 	}
 
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				log.Printf("Manual sync panic: %v", r)
-			}
-		}()
-		if err := h.sync.Sync(context.Background()); err != nil {
-			log.Printf("Manual sync error: %v", err)
-		}
-	}()
+	// Block on sync completion to properly report errors to client
+	if err := h.sync.Sync(c.Context()); err != nil {
+		log.Printf("Manual sync error: %v", err)
+		return c.Status(500).JSON(fiber.Map{
+			"error":   "sync failed",
+			"details": err.Error(),
+		})
+	}
 
-	return c.JSON(fiber.Map{"message": "sync triggered"})
+	return c.JSON(fiber.Map{"message": "sync completed successfully"})
 }
