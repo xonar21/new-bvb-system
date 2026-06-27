@@ -220,6 +220,8 @@ export function LuckysheetBoard() {
   const setApplySheetOp = useWSStore((s) => s.setApplySheetOp);
   const fullRefreshSeq = useWSStore((s) => s.fullRefreshSeq);
   const currentUser = useAuthStore((s) => s.user);
+  // Viewers get a fully read-only board — no editing, formatting, paste, or sync.
+  const isReadOnly = currentUser?.role === 'viewer';
 
   const [sheets, setSheets] = useState<any[]>([]);
 
@@ -254,6 +256,9 @@ export function LuckysheetBoard() {
 
   const currentUserRef = useRef(currentUser);
   currentUserRef.current = currentUser;
+
+  const isReadOnlyRef = useRef(isReadOnly);
+  isReadOnlyRef.current = isReadOnly;
 
   const deleteMutateRef = useRef(deleteMutation.mutate);
   deleteMutateRef.current = deleteMutation.mutate;
@@ -421,6 +426,12 @@ export function LuckysheetBoard() {
   const onChange = useCallback((data: any[]) => {
     if (!data || data.length === 0) return;
     const newMatrix = toMatrix(data[0]);
+    // Viewers never persist or broadcast changes — only track their selection.
+    if (isReadOnlyRef.current) {
+      lastMatrixRef.current = newMatrix;
+      sendCurrentSelectionFocus();
+      return;
+    }
     if (isExternalUpdateRef.current) {
       lastMatrixRef.current = newMatrix;
       sendCurrentSelectionFocus();
@@ -440,6 +451,10 @@ export function LuckysheetBoard() {
   // Memoized with a stable dep → does not break MemoWorkbook.
   const workbookHooks = useMemo(() => ({
     afterSelectionChange: () => sendCurrentSelectionFocus(),
+    // Defense-in-depth read-only guards (in addition to allowEdit={false}):
+    // returning false cancels the cell edit / paste before it happens.
+    beforeUpdateCell: () => !isReadOnlyRef.current,
+    beforePaste: () => !isReadOnlyRef.current,
   }), [sendCurrentSelectionFocus]);
 
   // ── Helper: build WS update list from (rowIdx, colIdx, rawValue) ──────────
@@ -465,6 +480,8 @@ export function LuckysheetBoard() {
   const onOp = useCallback((ops: any[]) => {
     if (!Array.isArray(ops) || ops.length === 0) return;
     if (isExternalUpdateRef.current) return;
+    // Viewers are read-only: never forward ops or persist to the backend.
+    if (isReadOnlyRef.current) return;
 
     const send = sendMsgRef.current;
 
@@ -503,6 +520,8 @@ export function LuckysheetBoard() {
   //
   // Uses rowLoadIdMapRef for loadId lookup → immune to column-A paste corruption.
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLDivElement>) => {
+    // Viewers cannot paste.
+    if (isReadOnlyRef.current) { e.preventDefault(); return; }
     const text = e.clipboardData?.getData('text/plain');
     if (!text) return;
     const send = sendMsgRef.current;
@@ -743,6 +762,8 @@ export function LuckysheetBoard() {
             onChange={onChange}
             onOp={onOp}
             hooks={workbookHooks}
+            allowEdit={!isReadOnly}
+            showToolbar={!isReadOnly}
           />
         </div>
       ) : (
