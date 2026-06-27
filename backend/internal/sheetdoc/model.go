@@ -47,10 +47,24 @@ type SheetVersion struct {
 
 // AuditEntry is a single audit-log record.
 type AuditEntry struct {
-	ID        int64           `json:"id"`
-	UserID    *int64          `json:"user_id"`
-	UserEmail string          `json:"user_email"`
-	Action    string          `json:"action"`
-	Details   json.RawMessage `json:"details"`
-	CreatedAt time.Time       `json:"created_at"`
+	ID              int64           `json:"id"`
+	UserID          *int64          `json:"user_id"`
+	UserEmail       string          `json:"user_email"`
+	Action          string          `json:"action"`
+	Details         json.RawMessage `json:"details"`
+	BeforeVersionID *int64          `json:"before_version_id"`
+	AfterVersionID  *int64          `json:"after_version_id"`
+	CreatedAt       time.Time       `json:"created_at"`
+}
+
+// CellChange is a single cell-level edit: which cell, who, old → new value.
+type CellChange struct {
+	ID        int64     `json:"id"`
+	UserID    *int64    `json:"user_id"`
+	UserEmail string    `json:"user_email"`
+	RowIdx    int       `json:"row_idx"`
+	ColIdx    int       `json:"col_idx"`
+	OldValue  string    `json:"old_value"`
+	NewValue  string    `json:"new_value"`
+	CreatedAt time.Time `json:"created_at"`
 }

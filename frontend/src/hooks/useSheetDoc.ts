@@ -50,6 +50,8 @@ export interface AuditEntry {
   user_email: string
   action: string
   details: any
+  before_version_id: number | null
+  after_version_id: number | null
   created_at: string
 }
 
@@ -59,6 +61,22 @@ export function listSheetVersions() {
 
 export function listSheetAudit() {
   return apiClient.get<{ audit: AuditEntry[] }>('/api/sheet/audit')
+}
+
+// ── Cell-level change log ────────────────────────────────────────────────────
+export interface CellChange {
+  id: number
+  user_id: number | null
+  user_email: string
+  row_idx: number
+  col_idx: number
+  old_value: string
+  new_value: string
+  created_at: string
+}
+
+export function listSheetCellChanges() {
+  return apiClient.get<{ changes: CellChange[] }>('/api/sheet/changes')
 }
 
 export function restoreSheetVersion(id: number) {

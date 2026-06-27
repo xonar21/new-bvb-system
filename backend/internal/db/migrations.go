@@ -147,6 +147,24 @@ func Migrate(pool *pgxpool.Pool) {
 	);
 	CREATE INDEX IF NOT EXISTS idx_sheet_audit_created_at ON sheet_audit_log(created_at DESC);
 
+	-- Link each deletion audit row to its before/after snapshot versions so the
+	-- UI can show a single deletion entry and open a before/after preview.
+	ALTER TABLE sheet_audit_log ADD COLUMN IF NOT EXISTS before_version_id INT;
+	ALTER TABLE sheet_audit_log ADD COLUMN IF NOT EXISTS after_version_id INT;
+
+	-- Cell-level change log: per-cell old → new value with who/when.
+	CREATE TABLE IF NOT EXISTS sheet_cell_changes (
+		id SERIAL PRIMARY KEY,
+		user_id INT REFERENCES users(id),
+		user_email TEXT,
+		row_idx INT NOT NULL,        -- 0-based sheet row
+		col_idx INT NOT NULL,        -- 0-based sheet column
+		old_value TEXT,
+		new_value TEXT,
+		created_at TIMESTAMPTZ DEFAULT NOW()
+	);
+	CREATE INDEX IF NOT EXISTS idx_sheet_cell_changes_created_at ON sheet_cell_changes(created_at DESC);
+
 	CREATE OR REPLACE FUNCTION loads_notify_insert()
 	RETURNS TRIGGER AS $$
 	BEGIN

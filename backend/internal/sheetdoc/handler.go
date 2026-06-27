@@ -29,6 +29,7 @@ func (h *Handler) RegisterRoutes(api fiber.Router, authMW fiber.Handler, writeMW
 	g.Get("/versions/:id", adminMW, h.GetVersion)
 	g.Post("/versions/:id/restore", adminMW, h.Restore)
 	g.Get("/audit", adminMW, h.ListAudit)
+	g.Get("/changes", adminMW, h.ListCellChanges)
 }
 
 func (h *Handler) Get(c *fiber.Ctx) error {
@@ -119,4 +120,13 @@ func (h *Handler) ListAudit(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.JSON(fiber.Map{"audit": entries})
+}
+
+func (h *Handler) ListCellChanges(c *fiber.Ctx) error {
+	limit, _ := strconv.Atoi(c.Query("limit", "300"))
+	changes, err := h.repo.ListCellChanges(c.Context(), limit)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+	return c.JSON(fiber.Map{"changes": changes})
 }

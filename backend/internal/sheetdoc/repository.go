@@ -51,6 +51,10 @@ func (r *Repository) Save(ctx context.Context, name string, data json.RawMessage
 		name = "Loads"
 	}
 
+	// Capture the previous document so we can log per-cell changes (old → new).
+	var oldData json.RawMessage
+	_ = r.db.QueryRow(ctx, `SELECT data FROM sheet_documents WHERE id = 1`).Scan(&oldData)
+
 	_, err := r.db.Exec(ctx, `
 		INSERT INTO sheet_documents (id, name, data, updated_at, last_edited_by)
 		VALUES (1, $1, $2, NOW(), $3)
@@ -63,6 +67,9 @@ func (r *Repository) Save(ctx context.Context, name string, data json.RawMessage
 	if err != nil {
 		return fmt.Errorf("save sheet document: %w", err)
 	}
+
+	// Best-effort: record cell-level changes for the history view.
+	r.logCellChanges(ctx, oldData, data, userID, userEmail)
 
 	if reason == "manual" {
 		return r.insertVersion(ctx, name, data, "manual", userID, userEmail)
@@ -108,10 +115,11 @@ func (r *Repository) SaveDeleteEvent(ctx context.Context, req DeleteEventRequest
 	defer tx.Rollback(ctx)
 
 	// 1) version: state BEFORE the deletion
-	if _, err := tx.Exec(ctx,
+	var beforeID int64
+	if err := tx.QueryRow(ctx,
 		`INSERT INTO sheet_versions (name, data, reason, created_by, created_by_email)
-		 VALUES ($1, $2, 'before_delete', $3, $4)`,
-		name, before, userID, userEmail); err != nil {
+		 VALUES ($1, $2, 'before_delete', $3, $4) RETURNING id`,
+		name, before, userID, userEmail).Scan(&beforeID); err != nil {
 		return fmt.Errorf("insert before_delete version: %w", err)
 	}
 
@@ -127,22 +135,23 @@ func (r *Repository) SaveDeleteEvent(ctx context.Context, req DeleteEventRequest
 	}
 
 	// 3) version: state AFTER the deletion
-	if _, err := tx.Exec(ctx,
+	var afterID int64
+	if err := tx.QueryRow(ctx,
 		`INSERT INTO sheet_versions (name, data, reason, created_by, created_by_email)
-		 VALUES ($1, $2, 'after_delete', $3, $4)`,
-		name, after, userID, userEmail); err != nil {
+		 VALUES ($1, $2, 'after_delete', $3, $4) RETURNING id`,
+		name, after, userID, userEmail).Scan(&afterID); err != nil {
 		return fmt.Errorf("insert after_delete version: %w", err)
 	}
 
-	// 4) audit log
+	// 4) audit log — links to the before/after snapshots for the preview modal.
 	action := req.Action
 	if action == "" {
 		action = "clear_cells"
 	}
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO sheet_audit_log (user_id, user_email, action, details)
-		 VALUES ($1, $2, $3, $4)`,
-		userID, userEmail, action, details); err != nil {
+		`INSERT INTO sheet_audit_log (user_id, user_email, action, details, before_version_id, after_version_id)
+		 VALUES ($1, $2, $3, $4, $5, $6)`,
+		userID, userEmail, action, details, beforeID, afterID); err != nil {
 		return fmt.Errorf("insert audit: %w", err)
 	}
 
@@ -248,13 +257,63 @@ func (r *Repository) Restore(ctx context.Context, versionID int64, userID int64,
 	return v, nil
 }
 
+// logCellChanges diffs old vs new document and records per-cell changes.
+// Best-effort: errors are swallowed so they never block a save.
+func (r *Repository) logCellChanges(ctx context.Context, oldData, newData json.RawMessage, userID int64, userEmail string) {
+	changes := diffCells(oldData, newData)
+	if len(changes) == 0 {
+		return
+	}
+	// Cap to avoid flooding on a large paste/import.
+	if len(changes) > 2000 {
+		changes = changes[:2000]
+	}
+	batch := &pgx.Batch{}
+	for _, ch := range changes {
+		batch.Queue(
+			`INSERT INTO sheet_cell_changes (user_id, user_email, row_idx, col_idx, old_value, new_value)
+			 VALUES ($1, $2, $3, $4, $5, $6)`,
+			userID, userEmail, ch.RowIdx, ch.ColIdx, ch.OldValue, ch.NewValue)
+	}
+	br := r.db.SendBatch(ctx, batch)
+	defer br.Close()
+	for range changes {
+		_, _ = br.Exec()
+	}
+}
+
+// ListCellChanges returns the cell-level change log, newest first.
+func (r *Repository) ListCellChanges(ctx context.Context, limit int) ([]CellChange, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 300
+	}
+	rows, err := r.db.Query(ctx,
+		`SELECT id, user_id, COALESCE(user_email, ''), row_idx, col_idx,
+		        COALESCE(old_value, ''), COALESCE(new_value, ''), created_at
+		 FROM sheet_cell_changes ORDER BY created_at DESC LIMIT $1`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list cell changes: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]CellChange, 0)
+	for rows.Next() {
+		var c CellChange
+		if err := rows.Scan(&c.ID, &c.UserID, &c.UserEmail, &c.RowIdx, &c.ColIdx, &c.OldValue, &c.NewValue, &c.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan cell change: %w", err)
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 // ListAudit returns the audit log, newest first.
 func (r *Repository) ListAudit(ctx context.Context, limit int) ([]AuditEntry, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 200
 	}
 	rows, err := r.db.Query(ctx,
-		`SELECT id, user_id, COALESCE(user_email, ''), action, details, created_at
+		`SELECT id, user_id, COALESCE(user_email, ''), action, details, before_version_id, after_version_id, created_at
 		 FROM sheet_audit_log ORDER BY created_at DESC LIMIT $1`, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list audit: %w", err)
@@ -264,7 +323,7 @@ func (r *Repository) ListAudit(ctx context.Context, limit int) ([]AuditEntry, er
 	out := make([]AuditEntry, 0)
 	for rows.Next() {
 		var a AuditEntry
-		if err := rows.Scan(&a.ID, &a.UserID, &a.UserEmail, &a.Action, &a.Details, &a.CreatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.UserID, &a.UserEmail, &a.Action, &a.Details, &a.BeforeVersionID, &a.AfterVersionID, &a.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan audit: %w", err)
 		}
 		out = append(out, a)
