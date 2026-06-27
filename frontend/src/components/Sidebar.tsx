@@ -64,14 +64,7 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
         {tabs.map((tab) => (
           <button
             key={tab.id}
-            onClick={() => {
-              if (tab.id === 'logs') {
-                // Open the logs/history in a separate browser tab.
-                window.open(`${window.location.origin}${window.location.pathname}#/logs`, '_blank')
-              } else {
-                onTabChange(tab.id)
-              }
-            }}
+            onClick={() => onTabChange(tab.id)}
             style={{
               display: 'block',
               width: '100%',

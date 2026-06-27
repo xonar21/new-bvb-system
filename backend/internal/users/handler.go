@@ -15,6 +15,17 @@ func NewHandler(repo *Repository) *Handler {
 	return &Handler{repo: repo}
 }
 
+// isValidRole reports whether r is one of the roles the app supports.
+// "user" is kept for backward compatibility with legacy seed data.
+func isValidRole(r string) bool {
+	switch r {
+	case "admin", "editor", "viewer", "user", "root":
+		return true
+	default:
+		return false
+	}
+}
+
 func (h *Handler) RegisterRoutes(api fiber.Router, authMW fiber.Handler, rootMW fiber.Handler) {
 	users := api.Group("/users", authMW, rootMW)
 	users.Get("/", h.Index)
@@ -65,10 +76,10 @@ func (h *Handler) Store(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "email, password, and name are required"})
 	}
 	if req.Role == "" {
-		req.Role = "user"
+		req.Role = "viewer"
 	}
-	if req.Role != "user" && req.Role != "root" {
-		return c.Status(400).JSON(fiber.Map{"error": "role must be 'user' or 'root'"})
+	if !isValidRole(req.Role) {
+		return c.Status(400).JSON(fiber.Map{"error": "role must be one of: admin, editor, viewer, user, root"})
 	}
 
 	existing, err := h.repo.FindByEmail(c.Context(), req.Email)
@@ -104,8 +115,8 @@ func (h *Handler) Update(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid request body"})
 	}
 
-	if req.Role != nil && *req.Role != "user" && *req.Role != "root" {
-		return c.Status(400).JSON(fiber.Map{"error": "role must be 'user' or 'root'"})
+	if req.Role != nil && !isValidRole(*req.Role) {
+		return c.Status(400).JSON(fiber.Map{"error": "role must be one of: admin, editor, viewer, user, root"})
 	}
 
 	if req.Password != nil && *req.Password != "" {

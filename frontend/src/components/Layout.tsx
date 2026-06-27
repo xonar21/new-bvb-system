@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Sidebar } from './Sidebar'
+import { useAuthStore } from '../store/authStore'
 
 interface LayoutProps {
   activeTab: string
@@ -8,9 +9,24 @@ interface LayoutProps {
 }
 
 export function Layout({ activeTab, onTabChange, children }: LayoutProps) {
+  const user = useAuthStore((s) => s.user)
+  const isAdmin = user?.role === 'admin' || user?.role === 'root'
   // Sidebar is a collapsible drawer, closed by default so the board uses the
   // full width. The ☰ button reopens it when the user needs status / Sign Out.
   const [open, setOpen] = useState(false)
+
+  // Admins get a permanent, always-open sidebar (no toggle) so the navigation
+  // tabs (Loads, Logs & history, Users, IPs) are always visible.
+  if (isAdmin) {
+    return (
+      <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: '#fafafa' }}>
+        <Sidebar activeTab={activeTab} onTabChange={onTabChange} />
+        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          {children}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div style={{ height: '100vh', overflow: 'hidden', background: '#fafafa', position: 'relative' }}>

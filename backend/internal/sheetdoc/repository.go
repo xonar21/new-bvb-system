@@ -11,8 +11,10 @@ import (
 )
 
 // periodicVersionInterval throttles "auto" version snapshots during normal
-// editing so we don't create a version on every debounced save.
-const periodicVersionInterval = 2 * time.Minute
+// editing so we don't create a version on every debounced save, while still
+// capturing the edit history at a fine enough granularity to see who changed
+// what over time.
+const periodicVersionInterval = 30 * time.Second
 
 type Repository struct {
 	db *pgxpool.Pool

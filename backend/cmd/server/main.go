@@ -110,11 +110,11 @@ func main() {
 	app.Post("/api/auth/login", authHandler.Login)
 
 	usersHandler := users.NewHandler(userRepo)
-	usersHandler.RegisterRoutes(api, authMW, auth.RequireRole("root"))
+	usersHandler.RegisterRoutes(api, authMW, auth.RequireRoles("admin", "root"))
 
 	layoutRepo := layout.NewRepository(pgPool)
 	layoutHandler := layout.NewHandler(layoutRepo, wsHub)
-	layoutHandler.RegisterRoutes(api, authMW, auth.RequireRole("root"))
+	layoutHandler.RegisterRoutes(api, authMW, auth.RequireRoles("admin", "root"))
 	layout.StartLockCleanup(layoutRepo, wsHub)
 
 	// Full sheet document persistence + history. Any authenticated user can read;
@@ -128,13 +128,13 @@ func main() {
 	allowedIPsRepo := allowedips.NewRepository(pgPool)
 	allowedIPsMiddleware := allowedips.NewIPMiddleware(allowedIPsRepo)
 	allowedIPsHandler := allowedips.NewHandler(allowedIPsRepo, wsHub)
-	allowedIPsHandler.RegisterRoutes(api, authMW, auth.RequireRole("root"))
+	allowedIPsHandler.RegisterRoutes(api, authMW, auth.RequireRoles("admin", "root"))
 
 	api.Use(allowedIPsMiddleware.Handler())
 
 	if sheetSync != nil {
 		syncHandler := sheets.NewHandler(sheetSync)
-		api.Post("/sync", authMW, auth.RequireRole("root"), syncHandler.TriggerSync)
+		api.Post("/sync", authMW, auth.RequireRoles("admin", "root"), syncHandler.TriggerSync)
 	}
 
 	app.Get("/ws", func(c *fiber.Ctx) error {

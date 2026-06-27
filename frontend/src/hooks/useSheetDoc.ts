@@ -64,3 +64,13 @@ export function listSheetAudit() {
 export function restoreSheetVersion(id: number) {
   return apiClient.post<{ success: boolean; name: string; data: any }>(`/api/sheet/versions/${id}/restore`)
 }
+
+// Full content of a single version (incl. the Fortune Sheet data blob) for
+// previewing it as a spreadsheet.
+export interface SheetVersionFull extends SheetVersionMeta {
+  data: any
+}
+
+export function getSheetVersion(id: number) {
+  return apiClient.get<SheetVersionFull>(`/api/sheet/versions/${id}`)
+}

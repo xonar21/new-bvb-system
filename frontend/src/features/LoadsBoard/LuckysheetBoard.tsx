@@ -84,6 +84,30 @@ const formatValue = (val: any, key: string): string => {
   return String(val);
 };
 
+// Returns true if a Fortune Sheet sheet contains at least one non-empty cell.
+// Handles both the `celldata` (sparse) and `data` (2D matrix) representations
+// that getAllSheets() may return.
+function sheetHasContent(s: any): boolean {
+  if (!s) return false;
+  if (Array.isArray(s.celldata) && s.celldata.length > 0) {
+    return s.celldata.some((c: any) => {
+      const v = c?.v && typeof c.v === 'object' ? c.v.v : c?.v;
+      return v !== undefined && v !== null && v !== '';
+    });
+  }
+  if (Array.isArray(s.data)) {
+    for (const row of s.data) {
+      if (!Array.isArray(row)) continue;
+      for (const cell of row) {
+        if (cell == null) continue;
+        const v = typeof cell === 'object' ? (cell.v && typeof cell.v === 'object' ? cell.v.v : cell.v) : cell;
+        if (v !== undefined && v !== null && v !== '') return true;
+      }
+    }
+  }
+  return false;
+}
+
 function buildSheetConfig(loadsData: Load[]) {
   const celldata: Array<{ r: number; c: number; v: { v: string; m: string } }> = [];
   loadsData.forEach((load, r) => {
@@ -304,25 +328,51 @@ export function LuckysheetBoard() {
   // Persists the ENTIRE workbook (every cell, style, the sheet name, config…)
   // a short moment after the last local change. Other users get changes live via
   // sheet.op; this guarantees nothing is lost on refresh/reconnect.
-  const scheduleSave = useCallback(() => {
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => {
-      const wb = workbookRef.current;
-      if (!wb?.getAllSheets) return;
-      try {
-        const allSheets = wb.getAllSheets() ?? [];
-        const name = allSheets[0]?.name ?? 'Loads';
-        saveSheetDoc(name, allSheets).catch((e) => console.warn('[saveSheet] failed', e));
-      } catch (e) {
-        console.warn('[saveSheet] error', e);
+  // Immediately persist the current workbook (used by the debounce and on exit).
+  const doSave = useCallback((reason: 'auto' | 'manual' = 'auto') => {
+    if (isReadOnlyRef.current) return;
+    const wb = workbookRef.current;
+    if (!wb?.getAllSheets) return;
+    try {
+      const allSheets = wb.getAllSheets() ?? [];
+      // SAFETY GUARD: never overwrite the saved document with an empty workbook.
+      // An init/refetch race can fire onChange right after the (empty) grid
+      // mounts; without this guard that would wipe real data on every reload.
+      if (!allSheets.some(sheetHasContent)) {
+        console.warn('[saveSheet] skipped — workbook has no cell values (would wipe data)');
+        return;
       }
-    }, 1200);
+      const name = allSheets[0]?.name ?? 'Loads';
+      saveSheetDoc(name, allSheets, reason).catch((e) => console.warn('[saveSheet] failed', e));
+    } catch (e) {
+      console.warn('[saveSheet] error', e);
+    }
   }, []);
 
-  // Flush a final save when leaving the page.
+  const scheduleSave = useCallback(() => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => doSave('auto'), 1200);
+  }, [doSave]);
+
+  // Flush any pending save when leaving the page or switching tabs, so a quick
+  // edit-then-refresh never loses data.
   useEffect(() => {
-    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
-  }, []);
+    const flush = () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+        doSave('auto');
+      }
+    };
+    window.addEventListener('beforeunload', flush);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') flush();
+    });
+    return () => {
+      window.removeEventListener('beforeunload', flush);
+      flush();
+    };
+  }, [doSave]);
 
   // ── STABLE: sendCurrentSelectionFocus ─────────────────────────────────────
   // Presence is tracked by sheet COORDINATES (row/col), so it works on any cell

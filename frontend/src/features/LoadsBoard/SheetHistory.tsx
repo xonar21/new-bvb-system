@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
+import { Workbook } from '@fortune-sheet/react'
+import '@fortune-sheet/react/dist/index.css'
 import {
-  listSheetVersions, listSheetAudit, restoreSheetVersion,
-  type SheetVersionMeta, type AuditEntry,
+  listSheetVersions, listSheetAudit, restoreSheetVersion, getSheetVersion,
+  type SheetVersionMeta, type AuditEntry, type SheetVersionFull,
 } from '../../hooks/useSheetDoc'
 
 const reasonLabel: Record<string, { text: string; color: string }> = {
@@ -41,6 +43,21 @@ export function SheetHistory() {
   const [audit, setAudit] = useState<AuditEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [restoring, setRestoring] = useState<number | null>(null)
+  const [viewing, setViewing] = useState<SheetVersionFull | null>(null)
+  const [viewLoading, setViewLoading] = useState<number | null>(null)
+
+  const handleView = async (id: number) => {
+    if (viewLoading) return
+    setViewLoading(id)
+    try {
+      const full = await getSheetVersion(id)
+      setViewing(full)
+    } catch (e) {
+      console.warn('[history] view failed', e)
+    } finally {
+      setViewLoading(null)
+    }
+  }
 
   const reload = () => {
     setLoading(true)
@@ -67,7 +84,7 @@ export function SheetHistory() {
   }
 
   return (
-    <div style={{ padding: '20px 24px', height: 'calc(100vh - 0px)', overflowY: 'auto', fontFamily: 'system-ui, sans-serif', boxSizing: 'border-box' }}>
+    <div style={{ padding: '20px 24px', height: '100%', flex: 1, overflowY: 'auto', fontFamily: 'system-ui, sans-serif', boxSizing: 'border-box' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
         <h2 style={{ margin: 0, fontSize: '20px' }}>Loguri & istoric modificări</h2>
         <button
@@ -120,7 +137,14 @@ export function SheetHistory() {
                       <span style={{ background: r.color, color: '#fff', padding: '2px 10px', borderRadius: '10px', fontSize: '11px' }}>{r.text}</span>
                     </td>
                     <td style={{ padding: '10px 12px' }}>{v.created_by_email || '—'}</td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                    <td style={{ padding: '10px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <button
+                        onClick={() => handleView(v.id)}
+                        disabled={viewLoading !== null}
+                        style={{ padding: '5px 12px', border: '1px solid #27ae60', background: viewLoading === v.id ? '#ccc' : '#fff', color: '#27ae60', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', marginRight: '6px' }}
+                      >
+                        {viewLoading === v.id ? 'Se încarcă…' : '👁 Vizualizează'}
+                      </button>
                       <button
                         onClick={() => handleRestore(v.id)}
                         disabled={restoring !== null}
@@ -160,6 +184,50 @@ export function SheetHistory() {
             </tbody>
           </table>
         )
+      )}
+
+      {/* Excel-style preview of a selected version (read-only spreadsheet) */}
+      {viewing && (
+        <div
+          onClick={() => setViewing(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: '8px', width: '95vw', height: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 8px 30px rgba(0,0,0,0.3)' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid #eee' }}>
+              <div style={{ fontSize: '14px' }}>
+                <strong>Versiune din {fmt(viewing.created_at)}</strong>
+                <span style={{ color: '#888', marginLeft: 10 }}>
+                  modificat de <strong>{viewing.created_by_email || '—'}</strong>
+                  {' · '}
+                  {(reasonLabel[viewing.reason]?.text) ?? viewing.reason}
+                </span>
+              </div>
+              <button
+                onClick={() => setViewing(null)}
+                style={{ padding: '6px 14px', border: '1px solid #ccc', background: '#fff', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}
+              >
+                ✕ Închide
+              </button>
+            </div>
+            <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+              {Array.isArray(viewing.data) && viewing.data.length > 0 ? (
+                <Workbook
+                  data={viewing.data}
+                  allowEdit={false}
+                  showToolbar={false}
+                  showFormulaBar={false}
+                />
+              ) : (
+                <div style={{ padding: 40, textAlign: 'center', color: '#888' }}>
+                  Această versiune nu conține date.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

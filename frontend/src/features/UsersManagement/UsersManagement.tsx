@@ -101,13 +101,13 @@ export function UsersManagement() {
     email: '',
     password: '',
     name: '',
-    role: 'user',
+    role: 'editor',
   })
 
   const [editForm, setEditForm] = useState<UpdateUserRequest>({})
 
   const resetForm = () => {
-    setForm({ email: '', password: '', name: '', role: 'user' })
+    setForm({ email: '', password: '', name: '', role: 'editor' })
     setShowCreate(false)
   }
 
@@ -210,10 +210,12 @@ export function UsersManagement() {
                     <td style={cellStyle}>
                       <select
                         style={select}
-                        value={editForm.role ?? 'user'}
+                        value={editForm.role ?? 'viewer'}
                         onChange={(e) => setEditForm((f) => ({ ...f, role: e.target.value }))}
                       >
-                        <option value="user">user</option>
+                        <option value="admin">admin</option>
+                        <option value="editor">editor</option>
+                        <option value="viewer">viewer</option>
                         <option value="root">root</option>
                       </select>
                     </td>
@@ -339,7 +341,9 @@ export function UsersManagement() {
                   value={form.role}
                   onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
                 >
-                  <option value="user">user</option>
+                  <option value="admin">admin</option>
+                  <option value="editor">editor</option>
+                  <option value="viewer">viewer</option>
                   <option value="root">root</option>
                 </select>
               </div>

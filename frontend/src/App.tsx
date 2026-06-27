@@ -35,7 +35,7 @@ function AppContent() {
 
   // Redirect to loads if user tries to access admin-only tabs
   useEffect(() => {
-    if ((activeTab === 'users' || activeTab === 'allowed-ips') && !isAdmin) {
+    if ((activeTab === 'users' || activeTab === 'allowed-ips' || activeTab === 'logs') && !isAdmin) {
       setActiveTab('loads')
     }
   }, [activeTab, isAdmin])
@@ -91,6 +91,8 @@ function AppContent() {
         return <UsersManagement />
       case 'allowed-ips':
         return <AllowedIps />
+      case 'logs':
+        return <SheetHistory />
       case 'loads':
       default:
         return <LuckysheetBoard />
