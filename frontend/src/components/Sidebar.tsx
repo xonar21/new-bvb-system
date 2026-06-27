@@ -15,14 +15,16 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
   const [syncMsg, setSyncMsg] = useState<string | null>(null)
   const isAdmin = user?.role === 'admin' || user?.role === 'root'
 
-  const tabs = [
-    { id: 'loads', label: 'Loads' },
-    ...(isAdmin ? [
-      { id: 'logs', label: 'Loguri & istoric' },
-      { id: 'users', label: 'Users Management' },
-      { id: 'allowed-ips', label: 'Allowed IPs' },
-    ] : []),
-  ]
+  // Only admins get navigation tabs. Editors/viewers see just the Loads board
+  // (the default view), so a single redundant "Loads" tab is hidden for them.
+  const tabs = isAdmin
+    ? [
+        { id: 'loads', label: 'Loads' },
+        { id: 'logs', label: 'Loguri & istoric' },
+        { id: 'users', label: 'Users Management' },
+        { id: 'allowed-ips', label: 'Allowed IPs' },
+      ]
+    : []
 
   const handleSync = async () => {
     setSyncMsg(null)
