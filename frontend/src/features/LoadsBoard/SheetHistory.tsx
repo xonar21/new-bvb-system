@@ -35,6 +35,89 @@ function summarize(d: any): string {
   return parts.join(', ')
 }
 
+// Extracts a "row,col" → text-value map from a Fortune Sheet sheet, handling
+// both the sparse `celldata` and the 2D `data` matrix representations.
+function cellValueMap(sheet: any): Map<string, string> {
+  const m = new Map<string, string>()
+  const val = (cell: any) => {
+    if (cell == null) return null
+    const v = typeof cell === 'object' ? (cell.v && typeof cell.v === 'object' ? cell.v.v : cell.v) : cell
+    return v === undefined || v === null || v === '' ? null : String(v)
+  }
+  if (Array.isArray(sheet?.celldata)) {
+    for (const c of sheet.celldata) {
+      const v = val(c?.v)
+      if (v !== null) m.set(`${c.r},${c.c}`, v)
+    }
+  }
+  if (Array.isArray(sheet?.data)) {
+    sheet.data.forEach((row: any[], r: number) => {
+      if (!Array.isArray(row)) return
+      row.forEach((cell, c) => {
+        const v = val(cell)
+        if (v !== null) m.set(`${r},${c}`, v)
+      })
+    })
+  }
+  return m
+}
+
+// Builds a read-only preview sheet for a version, highlighting what changed vs
+// the previous version: yellow = added/modified (new value), red = removed
+// (shows the old value so you can see what was there).
+function buildDiffPreview(curData: any, prevData: any): { sheet: any; changeCount: number } {
+  const curSheet = Array.isArray(curData) ? curData[0] : null
+  const prevSheet = Array.isArray(prevData) ? prevData[0] : null
+  const cur = cellValueMap(curSheet)
+  const prev = cellValueMap(prevSheet)
+
+  const celldata: any[] = []
+  let changeCount = 0
+  let maxR = 0
+  let maxC = 0
+
+  // Current cells (added / modified / unchanged)
+  for (const [key, value] of cur) {
+    const [r, c] = key.split(',').map(Number)
+    maxR = Math.max(maxR, r); maxC = Math.max(maxC, c)
+    const isChanged = prevSheet ? prev.get(key) !== value : false
+    if (isChanged) changeCount++
+    const cell: any = { v: value, m: value, ct: { fa: 'General', t: 'g' } }
+    if (isChanged) cell.bg = '#fff59d' // yellow
+    celldata.push({ r, c, v: cell })
+  }
+  // Removed cells (present before, gone now) — show the old value in red.
+  if (prevSheet) {
+    for (const [key, value] of prev) {
+      if (!cur.has(key)) {
+        const [r, c] = key.split(',').map(Number)
+        maxR = Math.max(maxR, r); maxC = Math.max(maxC, c)
+        changeCount++
+        celldata.push({ r, c, v: { v: value, m: value, bg: '#ffcdd2', fc: '#b71c1c' } })
+      }
+    }
+  }
+
+  const sheet = {
+    id: 'diff-preview',
+    name: 'Versiune',
+    status: 1,
+    order: 0,
+    row: Math.max(maxR + 5, 30),
+    column: Math.max(maxC + 2, 12),
+    celldata,
+    config: {},
+  }
+  return { sheet, changeCount }
+}
+
+interface ViewState {
+  meta: SheetVersionFull
+  preview: any[]
+  changeCount: number
+  hasPrev: boolean
+}
+
 // Full-page admin view of sheet modification history: versions (snapshots over
 // time, who/when) + the deletion audit log, with restore.
 export function SheetHistory() {
@@ -43,15 +126,20 @@ export function SheetHistory() {
   const [audit, setAudit] = useState<AuditEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [restoring, setRestoring] = useState<number | null>(null)
-  const [viewing, setViewing] = useState<SheetVersionFull | null>(null)
+  const [viewing, setViewing] = useState<ViewState | null>(null)
   const [viewLoading, setViewLoading] = useState<number | null>(null)
 
-  const handleView = async (id: number) => {
+  // index = position in the (newest-first) versions list, so we can fetch the
+  // previous (older) version for the diff.
+  const handleView = async (id: number, index: number) => {
     if (viewLoading) return
     setViewLoading(id)
     try {
-      const full = await getSheetVersion(id)
-      setViewing(full)
+      const cur = await getSheetVersion(id)
+      const prevMeta = versions[index + 1] // next item is older
+      const prev = prevMeta ? await getSheetVersion(prevMeta.id) : null
+      const { sheet, changeCount } = buildDiffPreview(cur.data, prev?.data)
+      setViewing({ meta: cur, preview: [sheet], changeCount, hasPrev: !!prev })
     } catch (e) {
       console.warn('[history] view failed', e)
     } finally {
@@ -128,18 +216,21 @@ export function SheetHistory() {
               </tr>
             </thead>
             <tbody>
-              {versions.map((v) => {
+              {versions.map((v, index) => {
                 const r = reasonLabel[v.reason] ?? { text: v.reason, color: '#7f8c8d' }
                 return (
-                  <tr key={v.id} style={{ borderTop: '1px solid #f0f0f0' }}>
-                    <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>{fmt(v.created_at)}</td>
+                  <tr key={v.id} style={{ borderTop: '1px solid #f0f0f0', background: index === 0 ? '#f3f9ff' : undefined }}>
+                    <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
+                      {fmt(v.created_at)}
+                      {index === 0 && <span style={{ marginLeft: 8, background: '#4a90d9', color: '#fff', padding: '1px 8px', borderRadius: 8, fontSize: 10 }}>cea mai nouă</span>}
+                    </td>
                     <td style={{ padding: '10px 12px' }}>
                       <span style={{ background: r.color, color: '#fff', padding: '2px 10px', borderRadius: '10px', fontSize: '11px' }}>{r.text}</span>
                     </td>
                     <td style={{ padding: '10px 12px' }}>{v.created_by_email || '—'}</td>
                     <td style={{ padding: '10px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                       <button
-                        onClick={() => handleView(v.id)}
+                        onClick={() => handleView(v.id, index)}
                         disabled={viewLoading !== null}
                         style={{ padding: '5px 12px', border: '1px solid #27ae60', background: viewLoading === v.id ? '#ccc' : '#fff', color: '#27ae60', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', marginRight: '6px' }}
                       >
@@ -196,35 +287,40 @@ export function SheetHistory() {
             onClick={(e) => e.stopPropagation()}
             style={{ background: '#fff', borderRadius: '8px', width: '95vw', height: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 8px 30px rgba(0,0,0,0.3)' }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid #eee' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid #eee', flexWrap: 'wrap', gap: 8 }}>
               <div style={{ fontSize: '14px' }}>
-                <strong>Versiune din {fmt(viewing.created_at)}</strong>
+                <strong>Versiune din {fmt(viewing.meta.created_at)}</strong>
                 <span style={{ color: '#888', marginLeft: 10 }}>
-                  modificat de <strong>{viewing.created_by_email || '—'}</strong>
+                  modificat de <strong>{viewing.meta.created_by_email || '—'}</strong>
                   {' · '}
-                  {(reasonLabel[viewing.reason]?.text) ?? viewing.reason}
+                  {(reasonLabel[viewing.meta.reason]?.text) ?? viewing.meta.reason}
                 </span>
               </div>
-              <button
-                onClick={() => setViewing(null)}
-                style={{ padding: '6px 14px', border: '1px solid #ccc', background: '#fff', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}
-              >
-                ✕ Închide
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 12 }}>
+                {viewing.hasPrev ? (
+                  <>
+                    <span style={{ color: '#555' }}><strong>{viewing.changeCount}</strong> modificări față de versiunea anterioară</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><span style={{ width: 12, height: 12, background: '#fff59d', border: '1px solid #e0c200', display: 'inline-block' }} /> modificat/adăugat</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><span style={{ width: 12, height: 12, background: '#ffcdd2', border: '1px solid #e57373', display: 'inline-block' }} /> șters</span>
+                  </>
+                ) : (
+                  <span style={{ color: '#888' }}>prima versiune (nimic de comparat)</span>
+                )}
+                <button
+                  onClick={() => setViewing(null)}
+                  style={{ padding: '6px 14px', border: '1px solid #ccc', background: '#fff', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}
+                >
+                  ✕ Închide
+                </button>
+              </div>
             </div>
             <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-              {Array.isArray(viewing.data) && viewing.data.length > 0 ? (
-                <Workbook
-                  data={viewing.data}
-                  allowEdit={false}
-                  showToolbar={false}
-                  showFormulaBar={false}
-                />
-              ) : (
-                <div style={{ padding: 40, textAlign: 'center', color: '#888' }}>
-                  Această versiune nu conține date.
-                </div>
-              )}
+              <Workbook
+                data={viewing.preview}
+                allowEdit={false}
+                showToolbar={false}
+                showFormulaBar={false}
+              />
             </div>
           </div>
         </div>

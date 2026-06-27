@@ -108,6 +108,31 @@ function sheetHasContent(s: any): boolean {
   return false;
 }
 
+// Fortune Sheet's Workbook renders its initial `data` prop from each sheet's
+// `celldata` (sparse) array. getAllSheets() however returns the `data` 2D matrix
+// (no celldata), so a reloaded document wouldn't render. This converts a sheet
+// that only has a `data` matrix into one with `celldata` so it always renders.
+function normalizeSheetForLoad(sheet: any): any {
+  if (!sheet || typeof sheet !== 'object') return sheet;
+  // Already has usable celldata → keep it, drop any stale matrix.
+  if (Array.isArray(sheet.celldata) && sheet.celldata.length > 0) {
+    const { data, ...rest } = sheet;
+    return rest;
+  }
+  if (Array.isArray(sheet.data)) {
+    const celldata: Array<{ r: number; c: number; v: any }> = [];
+    sheet.data.forEach((row: any[], r: number) => {
+      if (!Array.isArray(row)) return;
+      row.forEach((cell, c) => {
+        if (cell !== null && cell !== undefined) celldata.push({ r, c, v: cell });
+      });
+    });
+    const { data, ...rest } = sheet;
+    return { ...rest, celldata };
+  }
+  return sheet;
+}
+
 function buildSheetConfig(loadsData: Load[]) {
   const celldata: Array<{ r: number; c: number; v: { v: string; m: string } }> = [];
   loadsData.forEach((load, r) => {
@@ -319,7 +344,11 @@ export function LuckysheetBoard() {
     initializedRef.current = true;
 
     const saved = Array.isArray(sheetDoc.data) ? sheetDoc.data : null;
-    const initial = (saved && saved.length > 0) ? saved : [buildSheetConfig([])];
+    // Convert each saved sheet's `data` matrix → `celldata` so the Workbook
+    // actually renders the restored cells on load.
+    const initial = (saved && saved.length > 0)
+      ? saved.map(normalizeSheetForLoad)
+      : [buildSheetConfig([])];
     setSheets(initial);
     prevSnapshotRef.current = initial;
   }, [sheetDoc]);
@@ -343,11 +372,14 @@ export function LuckysheetBoard() {
         return;
       }
       const name = allSheets[0]?.name ?? 'Loads';
+      // Keep the React Query cache in sync so a tab-switch remount (or any
+      // refetch) reloads the freshly-saved data instead of stale/empty data.
+      queryClient.setQueryData(['sheet-doc'], { name, data: allSheets });
       saveSheetDoc(name, allSheets, reason).catch((e) => console.warn('[saveSheet] failed', e));
     } catch (e) {
       console.warn('[saveSheet] error', e);
     }
-  }, []);
+  }, [queryClient]);
 
   const scheduleSave = useCallback(() => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -547,20 +579,24 @@ export function LuckysheetBoard() {
     const name = after[0]?.name ?? 'Loads';
 
     const del = detectDeletion(ops);
-    if (del.isDelete) {
+    // SAFETY: never let a delete-event persist an empty workbook. A spurious
+    // delete op while the sheet is transiently empty (e.g. just after load)
+    // would otherwise wipe the whole document, bypassing the doSave guard.
+    if (del.isDelete && Array.isArray(after) && after.some(sheetHasContent)) {
       // Cancel a pending normal save — the delete-event persists the new state
       // AND keeps before/after versions + an audit entry.
       if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null; }
+      queryClient.setQueryData(['sheet-doc'], { name, data: after });
       saveDeleteEvent({ name, before, after, action: del.action, details: del.details })
         .catch((e) => console.warn('[deleteEvent] failed', e));
     } else {
-      // Normal change → debounced full-snapshot save.
+      // Normal change → debounced full-snapshot save (empty-guarded in doSave).
       scheduleSave();
     }
 
     prevSnapshotRef.current = after;
     sendCurrentSelectionFocus();
-  }, [sendCurrentSelectionFocus, scheduleSave]);
+  }, [sendCurrentSelectionFocus, scheduleSave, queryClient]);
 
   // ── handlePaste: TSV clipboard → WS bulk update ───────────────────────────
   // Fortune Sheet handles the visual paste natively (no preventDefault).
