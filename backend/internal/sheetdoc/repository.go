@@ -68,8 +68,19 @@ func (r *Repository) Save(ctx context.Context, name string, data json.RawMessage
 		return fmt.Errorf("save sheet document: %w", err)
 	}
 
+	// Calculate semantic diff: only cells that actually changed (not binary comparison).
+	changes := diffCells(oldData, data)
+
 	// Best-effort: record cell-level changes for the history view.
-	r.logCellChanges(ctx, oldData, data, userID, userEmail)
+	if len(changes) > 0 {
+		r.insertCellChanges(ctx, changes, userID, userEmail)
+	}
+
+	// Skip no-op versions: if no cells changed, don't create a version.
+	// This prevents clutter from auto-saves with no actual modifications.
+	if len(changes) == 0 {
+		return nil
+	}
 
 	if reason == "manual" {
 		return r.insertVersion(ctx, name, data, "manual", userID, userEmail)
@@ -106,6 +117,12 @@ func (r *Repository) SaveDeleteEvent(ctx context.Context, req DeleteEventRequest
 	details := req.Details
 	if len(details) == 0 {
 		details = json.RawMessage("{}")
+	}
+
+	// Skip no-op deletes: if no cells changed, nothing actually was deleted.
+	// This prevents logging spurious deletes (e.g., Ctrl+A + Delete with no content).
+	if len(diffCells(before, after)) == 0 {
+		return nil
 	}
 
 	tx, err := r.db.Begin(ctx)
@@ -257,13 +274,10 @@ func (r *Repository) Restore(ctx context.Context, versionID int64, userID int64,
 	return v, nil
 }
 
-// logCellChanges diffs old vs new document and records per-cell changes.
+// insertCellChanges records per-cell changes to the database.
 // Best-effort: errors are swallowed so they never block a save.
-func (r *Repository) logCellChanges(ctx context.Context, oldData, newData json.RawMessage, userID int64, userEmail string) {
-	changes := diffCells(oldData, newData)
-	if len(changes) == 0 {
-		return
-	}
+// Caller is responsible for checking len(changes) > 0 before calling.
+func (r *Repository) insertCellChanges(ctx context.Context, changes []CellChange, userID int64, userEmail string) {
 	// Cap to avoid flooding on a large paste/import.
 	if len(changes) > 2000 {
 		changes = changes[:2000]

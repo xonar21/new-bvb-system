@@ -14,37 +14,58 @@ function colLetter(n: number): string {
   return s
 }
 
-const reasonLabel: Record<string, { text: string; color: string }> = {
-  before_delete: { text: 'Înainte de ștergere', color: '#e67e22' },
-  after_delete: { text: 'După ștergere', color: '#c0392b' },
-  auto: { text: 'Automat', color: '#7f8c8d' },
-  manual: { text: 'Manual', color: '#2980b9' },
-  restore: { text: 'Restaurat', color: '#27ae60' },
+type TimelineEvent = {
+  id: string
+  kind: 'edit' | 'delete' | 'restore'
+  at: string
+  userEmail: string
+  changeCount?: number
+  raw: SheetVersionMeta | AuditEntry
 }
 
-const actionLabel: Record<string, string> = {
-  delete_rows: 'Șters rânduri',
-  delete_cols: 'Șters coloane',
-  clear_cells: 'Golit celule',
-  restore: 'Restaurare versiune',
+const tokens = {
+  cardStyle: { padding: '12px 16px', borderBottom: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', gap: '12px' } as React.CSSProperties,
+  dayHeaderStyle: { padding: '12px 16px', fontWeight: 600, fontSize: '12px', color: '#666', background: '#f7f8fa', position: 'sticky' as const, top: 0, zIndex: 10, textTransform: 'uppercase' as const, letterSpacing: '0.5px' } as React.CSSProperties,
+  chipStyle: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '32px', height: '32px', borderRadius: '50%', fontSize: '12px', fontWeight: 600, color: '#fff', flexShrink: 0 } as React.CSSProperties,
+  timeStyle: { fontSize: '13px', fontWeight: 600, color: '#333', minWidth: '50px' } as React.CSSProperties,
+  actionTextStyle: { flex: 1, fontSize: '13px', color: '#555' } as React.CSSProperties,
+  btnSmallGhost: { padding: '5px 12px', border: '1px solid #ccc', background: '#fff', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', marginRight: '6px' } as React.CSSProperties,
+  btnSmallPrimary: { padding: '5px 12px', border: '1px solid #4a90d9', background: '#fff', color: '#4a90d9', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' } as React.CSSProperties,
+  containerStyle: { padding: '20px 24px', height: '100%', flex: 1, overflowY: 'auto' as const, fontFamily: 'system-ui, sans-serif', boxSizing: 'border-box' as const } as React.CSSProperties,
+}
+
+function colorForEmail(email: string): string {
+  const colors = ['#E53935', '#D81B60', '#8E24AA', '#5E35B1', '#3949AB', '#1E88E5', '#0097A7', '#00796B', '#43A047', '#FB8C00']
+  let hash = 0
+  for (let i = 0; i < email.length; i++) {
+    hash = ((hash << 5) - hash) + email.charCodeAt(i)
+    hash = hash & hash
+  }
+  return colors[Math.abs(hash) % colors.length]
+}
+
+function dayLabel(ts: string): string {
+  const d = new Date(ts)
+  const today = new Date()
+  const yesterday = new Date(today)
+  yesterday.setDate(yesterday.getDate() - 1)
+
+  const isSameDay = (date1: Date, date2: Date) => date1.toDateString() === date2.toDateString()
+
+  if (isSameDay(d, today)) return 'Astăzi'
+  if (isSameDay(d, yesterday)) return 'Ieri'
+
+  return new Intl.DateTimeFormat('ro-RO', { day: 'numeric', month: 'long', year: 'numeric' }).format(d)
 }
 
 function fmt(ts: string): string {
   try { return new Date(ts).toLocaleString() } catch { return ts }
 }
 
-function summarize(d: any): string {
-  if (!d || typeof d !== 'object') return ''
-  const parts: string[] = []
-  if (Array.isArray(d.rows) && d.rows.length) parts.push(`rânduri: ${d.rows.length}`)
-  if (Array.isArray(d.cols) && d.cols.length) parts.push(`coloane: ${d.cols.length}`)
-  if (d.cleared_cells) parts.push(`celule: ${d.cleared_cells}`)
-  if (d.restored_version_id) parts.push(`versiune #${d.restored_version_id}`)
-  return parts.join(', ')
+function timeOnly(ts: string): string {
+  try { return new Date(ts).toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' }) } catch { return ts }
 }
 
-// Extracts a "row,col" → text-value map from a Fortune Sheet sheet, handling
-// both the sparse `celldata` and the 2D `data` matrix representations.
 function cellValueMap(sheet: any): Map<string, string> {
   const m = new Map<string, string>()
   const val = (cell: any) => {
@@ -70,9 +91,21 @@ function cellValueMap(sheet: any): Map<string, string> {
   return m
 }
 
-// Builds a read-only preview sheet for a version, highlighting what changed vs
-// the previous version: yellow = added/modified (new value), red = removed
-// (shows the old value so you can see what was there).
+function countChangesForVersion(
+  version: SheetVersionMeta,
+  index: number,
+  allVersions: SheetVersionMeta[],
+  allChanges: CellChange[]
+): number {
+  const tCur = new Date(version.created_at).getTime()
+  const prevMeta = allVersions[index + 1]
+  const tPrev = prevMeta ? new Date(prevMeta.created_at).getTime() : 0
+  return allChanges.filter((c) => {
+    const t = new Date(c.created_at).getTime()
+    return t > tPrev && t <= tCur
+  }).length
+}
+
 function buildDiffPreview(curData: any, prevData: any): { sheet: any; changeCount: number } {
   const curSheet = Array.isArray(curData) ? curData[0] : null
   const prevSheet = Array.isArray(prevData) ? prevData[0] : null
@@ -84,17 +117,15 @@ function buildDiffPreview(curData: any, prevData: any): { sheet: any; changeCoun
   let maxR = 0
   let maxC = 0
 
-  // Current cells (added / modified / unchanged)
   for (const [key, value] of cur) {
     const [r, c] = key.split(',').map(Number)
     maxR = Math.max(maxR, r); maxC = Math.max(maxC, c)
     const isChanged = prevSheet ? prev.get(key) !== value : false
     if (isChanged) changeCount++
     const cell: any = { v: value, m: value, ct: { fa: 'General', t: 'g' } }
-    if (isChanged) cell.bg = '#fff59d' // yellow
+    if (isChanged) cell.bg = '#fff59d'
     celldata.push({ r, c, v: cell })
   }
-  // Removed cells (present before, gone now) — show the old value in red.
   if (prevSheet) {
     for (const [key, value] of prev) {
       if (!cur.has(key)) {
@@ -155,13 +186,95 @@ interface DelViewState {
   side: 'before' | 'after'
 }
 
-// Full-page admin view of sheet modification history: versions (snapshots over
-// time, who/when) + the deletion audit log, with restore.
+function EventRow({ event, onView, onRestore, onViewDelete, viewLoading, delLoading }: {
+  event: TimelineEvent
+  onView: (id: number, idx: number) => void
+  onRestore: (id: number) => void
+  onViewDelete: (a: AuditEntry) => void
+  viewLoading: number | null
+  delLoading: number | null
+}) {
+  const bgColor = colorForEmail(event.userEmail)
+  const initial = event.userEmail.charAt(0).toUpperCase()
+
+  const actionText = {
+    edit: `a modificat ${event.changeCount || 0} ${event.changeCount === 1 ? 'celulă' : 'celule'}`,
+    delete: `a șters ${event.changeCount || 0} ${event.changeCount === 1 ? 'celulă' : 'celule'}`,
+    restore: 'a restaurat o versiune',
+  }[event.kind]
+
+  const icon = { edit: '✏️', delete: '🗑', restore: '↺' }[event.kind]
+
+  if (event.kind === 'edit') {
+    const v = event.raw as SheetVersionMeta
+    return (
+      <div style={tokens.cardStyle}>
+        <span style={tokens.timeStyle}>{timeOnly(event.at)}</span>
+        <div style={{ ...tokens.chipStyle, background: bgColor }} title={event.userEmail}>{initial}</div>
+        <span style={tokens.actionTextStyle}>{icon} {actionText}</span>
+        <button
+          onClick={() => {
+            const idx = 0
+            onView(v.id, idx)
+          }}
+          disabled={viewLoading !== null}
+          style={{ ...tokens.btnSmallGhost, borderColor: '#27ae60', color: '#27ae60' }}
+        >
+          {viewLoading === v.id ? 'Se încarcă…' : '👁'}
+        </button>
+        <button
+          onClick={() => onRestore(v.id)}
+          style={{ ...tokens.btnSmallPrimary }}
+        >
+          ↺
+        </button>
+      </div>
+    )
+  }
+
+  if (event.kind === 'delete') {
+    const a = event.raw as AuditEntry
+    return (
+      <div style={tokens.cardStyle}>
+        <span style={tokens.timeStyle}>{timeOnly(event.at)}</span>
+        <div style={{ ...tokens.chipStyle, background: bgColor }} title={event.userEmail}>{initial}</div>
+        <span style={tokens.actionTextStyle}>{icon} {actionText}</span>
+        <button
+          onClick={() => onViewDelete(a)}
+          disabled={delLoading !== null}
+          style={{ ...tokens.btnSmallGhost, borderColor: '#27ae60', color: '#27ae60' }}
+        >
+          {delLoading === a.id ? 'Se încarcă…' : '👁'}
+        </button>
+      </div>
+    )
+  }
+
+  const v = event.raw as SheetVersionMeta
+  return (
+    <div style={tokens.cardStyle}>
+      <span style={tokens.timeStyle}>{timeOnly(event.at)}</span>
+      <div style={{ ...tokens.chipStyle, background: bgColor }} title={event.userEmail}>{initial}</div>
+      <span style={tokens.actionTextStyle}>{icon} {actionText}</span>
+      <button
+        onClick={() => {
+          const idx = 0
+          onView(v.id, idx)
+        }}
+        disabled={viewLoading !== null}
+        style={{ ...tokens.btnSmallGhost, borderColor: '#27ae60', color: '#27ae60' }}
+      >
+        {viewLoading === v.id ? 'Se încarcă…' : '👁'}
+      </button>
+    </div>
+  )
+}
+
 export function SheetHistory() {
-  const [tab, setTab] = useState<'versions' | 'audit'>('versions')
   const [versions, setVersions] = useState<SheetVersionMeta[]>([])
   const [audit, setAudit] = useState<AuditEntry[]>([])
   const [changes, setChanges] = useState<CellChange[]>([])
+  const [events, setEvents] = useState<TimelineEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [restoring, setRestoring] = useState<number | null>(null)
   const [viewing, setViewing] = useState<ViewState | null>(null)
@@ -169,7 +282,6 @@ export function SheetHistory() {
   const [delView, setDelView] = useState<DelViewState | null>(null)
   const [delLoading, setDelLoading] = useState<number | null>(null)
 
-  // Opens a deletion's before/after snapshots in one modal.
   const handleViewDeletion = async (a: AuditEntry) => {
     if (delLoading || !a.before_version_id || !a.after_version_id) return
     setDelLoading(a.id)
@@ -181,7 +293,7 @@ export function SheetHistory() {
       const bMap = cellValueMap(Array.isArray(b.data) ? b.data[0] : null)
       const aMap = cellValueMap(Array.isArray(af.data) ? af.data[0] : null)
       const deleted = new Set<string>()
-      for (const [k, v] of bMap) if (aMap.get(k) !== v) deleted.add(k)
+      for (const [k, v] of bMap) if (!aMap.has(k)) deleted.add(k)
       setDelView({
         entry: a,
         before: [buildPlainPreview(b.data, deleted, '#ffcdd2')],
@@ -196,18 +308,14 @@ export function SheetHistory() {
     }
   }
 
-  // index = position in the (newest-first) versions list, so we can fetch the
-  // previous (older) version for the diff.
   const handleView = async (id: number, index: number) => {
     if (viewLoading) return
     setViewLoading(id)
     try {
       const cur = await getSheetVersion(id)
-      const prevMeta = versions[index + 1] // next item is older
+      const prevMeta = versions[index + 1]
       const prev = prevMeta ? await getSheetVersion(prevMeta.id) : null
       const { sheet, changeCount } = buildDiffPreview(cur.data, prev?.data)
-      // Cell-level edits that happened between the previous snapshot and this
-      // one — i.e. who changed which cell, from what value to what.
       const tCur = new Date(cur.created_at).getTime()
       const tPrev = prevMeta ? new Date(prevMeta.created_at).getTime() : 0
       const cellChanges = changes.filter((c) => {
@@ -222,15 +330,55 @@ export function SheetHistory() {
     }
   }
 
+  const buildEvents = (vers: SheetVersionMeta[], aud: AuditEntry[], chg: CellChange[]) => {
+    const evts: TimelineEvent[] = []
+
+    for (let i = 0; i < vers.length; i++) {
+      const v = vers[i]
+      if (v.reason === 'before_delete' || v.reason === 'after_delete') continue
+
+      const changeCount = v.reason === 'restore'
+        ? 0
+        : countChangesForVersion(v, i, vers, chg)
+
+      if (changeCount === 0 && v.reason !== 'restore') continue
+
+      evts.push({
+        id: `v-${v.id}`,
+        kind: v.reason === 'restore' ? 'restore' : 'edit',
+        at: v.created_at,
+        userEmail: v.created_by_email || '?',
+        changeCount: v.reason === 'restore' ? undefined : changeCount,
+        raw: v,
+      })
+    }
+
+    for (const a of aud) {
+      const changeCount = a.details?.cleared_cells || 0
+      if (changeCount === 0) continue
+
+      evts.push({
+        id: `a-${a.id}`,
+        kind: 'delete',
+        at: a.created_at,
+        userEmail: a.user_email || '?',
+        changeCount,
+        raw: a,
+      })
+    }
+
+    return evts.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+  }
+
   const reload = () => {
     setLoading(true)
     Promise.all([listSheetVersions(), listSheetAudit(), listSheetCellChanges()])
       .then(([v, a, c]) => {
-        // Hide the noisy before/after-delete snapshots from the Versiuni list —
-        // deletions are shown as a single entry in the "Jurnal ștergeri" tab.
-        setVersions(v.versions.filter((x) => x.reason !== 'before_delete' && x.reason !== 'after_delete'))
+        const vers = v.versions.filter((x) => x.reason !== 'before_delete' && x.reason !== 'after_delete')
+        setVersions(vers)
         setAudit(a.audit)
         setChanges(c.changes)
+        setEvents(buildEvents(vers, a.audit, c.changes))
       })
       .catch((e) => console.warn('[history] load failed', e))
       .finally(() => setLoading(false))
@@ -244,7 +392,6 @@ export function SheetHistory() {
     setRestoring(id)
     try {
       await restoreSheetVersion(id)
-      // Reload the app so the sheet re-initialises from the restored state.
       window.location.reload()
     } catch (e) {
       console.warn('[history] restore failed', e)
@@ -252,10 +399,19 @@ export function SheetHistory() {
     }
   }
 
+  const groupedByDay = events.reduce((acc, event) => {
+    const label = dayLabel(event.at)
+    if (!acc[label]) acc[label] = []
+    acc[label].push(event)
+    return acc
+  }, {} as Record<string, TimelineEvent[]>)
+
+  const dayOrder = Object.keys(groupedByDay)
+
   return (
-    <div style={{ padding: '20px 24px', height: '100%', flex: 1, overflowY: 'auto', fontFamily: 'system-ui, sans-serif', boxSizing: 'border-box' }}>
+    <div style={tokens.containerStyle}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-        <h2 style={{ margin: 0, fontSize: '20px' }}>Loguri & istoric modificări</h2>
+        <h2 style={{ margin: 0, fontSize: '20px' }}>Timeline - Loguri & istoric</h2>
         <button
           onClick={reload}
           style={{ padding: '6px 14px', border: '1px solid #ccc', background: '#fff', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}
@@ -264,113 +420,33 @@ export function SheetHistory() {
         </button>
       </div>
 
-      <div style={{ display: 'flex', gap: '6px', marginBottom: '14px' }}>
-        {(['versions', 'audit'] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            style={{
-              padding: '8px 18px', border: 'none', borderRadius: '6px', cursor: 'pointer',
-              fontSize: '13px', fontWeight: 600,
-              background: tab === t ? '#4a90d9' : '#eef0f3',
-              color: tab === t ? '#fff' : '#555',
-            }}
-          >
-            {t === 'versions' ? 'Versiuni (snapshot)' : 'Jurnal ștergeri'}
-          </button>
-        ))}
-      </div>
-
       {loading ? (
         <div style={{ color: '#888', textAlign: 'center', padding: '40px' }}>Se încarcă…</div>
-      ) : tab === 'versions' ? (
-        versions.length === 0 ? (
-          <div style={{ color: '#888', textAlign: 'center', padding: '40px' }}>Nicio versiune încă.</div>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', background: '#fff', borderRadius: '8px', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-            <thead>
-              <tr style={{ textAlign: 'left', color: '#666', background: '#f7f8fa' }}>
-                <th style={{ padding: '10px 12px' }}>Când</th>
-                <th style={{ padding: '10px 12px' }}>Tip</th>
-                <th style={{ padding: '10px 12px' }}>Utilizator</th>
-                <th style={{ padding: '10px 12px' }}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {versions.map((v, index) => {
-                const r = reasonLabel[v.reason] ?? { text: v.reason, color: '#7f8c8d' }
-                return (
-                  <tr key={v.id} style={{ borderTop: '1px solid #f0f0f0', background: index === 0 ? '#f3f9ff' : undefined }}>
-                    <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
-                      {fmt(v.created_at)}
-                      {index === 0 && <span style={{ marginLeft: 8, background: '#4a90d9', color: '#fff', padding: '1px 8px', borderRadius: 8, fontSize: 10 }}>cea mai nouă</span>}
-                    </td>
-                    <td style={{ padding: '10px 12px' }}>
-                      <span style={{ background: r.color, color: '#fff', padding: '2px 10px', borderRadius: '10px', fontSize: '11px' }}>{r.text}</span>
-                    </td>
-                    <td style={{ padding: '10px 12px' }}>{v.created_by_email || '—'}</td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      <button
-                        onClick={() => handleView(v.id, index)}
-                        disabled={viewLoading !== null}
-                        style={{ padding: '5px 12px', border: '1px solid #27ae60', background: viewLoading === v.id ? '#ccc' : '#fff', color: '#27ae60', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', marginRight: '6px' }}
-                      >
-                        {viewLoading === v.id ? 'Se încarcă…' : '👁 Vizualizează'}
-                      </button>
-                      <button
-                        onClick={() => handleRestore(v.id)}
-                        disabled={restoring !== null}
-                        style={{ padding: '5px 12px', border: '1px solid #4a90d9', background: restoring === v.id ? '#ccc' : '#fff', color: '#4a90d9', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
-                      >
-                        {restoring === v.id ? 'Se restaurează…' : 'Restaurează'}
-                      </button>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        )
+      ) : events.length === 0 ? (
+        <div style={{ color: '#888', textAlign: 'center', padding: '40px' }}>Nicio activitate din log.</div>
       ) : (
-        audit.length === 0 ? (
-          <div style={{ color: '#888', textAlign: 'center', padding: '40px' }}>Nicio ștergere înregistrată.</div>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', background: '#fff', borderRadius: '8px', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-            <thead>
-              <tr style={{ textAlign: 'left', color: '#666', background: '#f7f8fa' }}>
-                <th style={{ padding: '10px 12px' }}>Când</th>
-                <th style={{ padding: '10px 12px' }}>Cine a șters</th>
-                <th style={{ padding: '10px 12px' }}>Acțiune</th>
-                <th style={{ padding: '10px 12px' }}>Detalii</th>
-                <th style={{ padding: '10px 12px' }}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {audit.map((a) => (
-                <tr key={a.id} style={{ borderTop: '1px solid #f0f0f0' }}>
-                  <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>{fmt(a.created_at)}</td>
-                  <td style={{ padding: '10px 12px' }}>{a.user_email || '—'}</td>
-                  <td style={{ padding: '10px 12px' }}>{actionLabel[a.action] ?? a.action}</td>
-                  <td style={{ padding: '10px 12px', color: '#777', fontFamily: 'monospace', fontSize: '11px' }}>{summarize(a.details)}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    {a.before_version_id && a.after_version_id && (
-                      <button
-                        onClick={() => handleViewDeletion(a)}
-                        disabled={delLoading !== null}
-                        style={{ padding: '5px 12px', border: '1px solid #27ae60', background: delLoading === a.id ? '#ccc' : '#fff', color: '#27ae60', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
-                      >
-                        {delLoading === a.id ? 'Se încarcă…' : '👁 Înainte / După'}
-                      </button>
-                    )}
-                  </td>
-                </tr>
+        <div style={{ background: '#fff', borderRadius: '8px', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+          {dayOrder.map((dayLbl) => (
+            <div key={dayLbl}>
+              <div style={tokens.dayHeaderStyle}>
+                {dayLbl}
+              </div>
+              {groupedByDay[dayLbl].map((event) => (
+                <EventRow
+                  key={event.id}
+                  event={event}
+                  onView={handleView}
+                  onRestore={handleRestore}
+                  onViewDelete={handleViewDeletion}
+                  viewLoading={viewLoading}
+                  delLoading={delLoading}
+                />
               ))}
-            </tbody>
-          </table>
-        )
+            </div>
+          ))}
+        </div>
       )}
 
-      {/* Excel-style preview of a selected version (read-only spreadsheet) */}
       {viewing && (
         <div
           onClick={() => setViewing(null)}
@@ -385,19 +461,17 @@ export function SheetHistory() {
                 <strong>Versiune din {fmt(viewing.meta.created_at)}</strong>
                 <span style={{ color: '#888', marginLeft: 10 }}>
                   modificat de <strong>{viewing.meta.created_by_email || '—'}</strong>
-                  {' · '}
-                  {(reasonLabel[viewing.meta.reason]?.text) ?? viewing.meta.reason}
                 </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 12 }}>
                 {viewing.hasPrev ? (
                   <>
-                    <span style={{ color: '#555' }}><strong>{viewing.changeCount}</strong> modificări față de versiunea anterioară</span>
+                    <span style={{ color: '#555' }}><strong>{viewing.changeCount}</strong> modificări</span>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><span style={{ width: 12, height: 12, background: '#fff59d', border: '1px solid #e0c200', display: 'inline-block' }} /> modificat/adăugat</span>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><span style={{ width: 12, height: 12, background: '#ffcdd2', border: '1px solid #e57373', display: 'inline-block' }} /> șters</span>
                   </>
                 ) : (
-                  <span style={{ color: '#888' }}>prima versiune (nimic de comparat)</span>
+                  <span style={{ color: '#888' }}>prima versiune</span>
                 )}
                 <button
                   onClick={() => setViewing(null)}
@@ -416,18 +490,13 @@ export function SheetHistory() {
                   showFormulaBar={false}
                 />
               </div>
-              {/* Who changed what, from which value to which */}
-              <div style={{ width: 340, borderLeft: '1px solid #eee', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                <div style={{ padding: '10px 12px', borderBottom: '1px solid #eee', fontWeight: 600, fontSize: 13, background: '#f7f8fa' }}>
-                  Cine a modificat ({viewing.cellChanges.length})
-                </div>
-                <div style={{ flex: 1, overflowY: 'auto' }}>
-                  {viewing.cellChanges.length === 0 ? (
-                    <div style={{ padding: 16, color: '#999', fontSize: 12 }}>
-                      Nicio modificare de celulă înregistrată pentru această versiune.
-                    </div>
-                  ) : (
-                    viewing.cellChanges.map((c) => (
+              {viewing.cellChanges.length > 0 && (
+                <div style={{ width: 340, borderLeft: '1px solid #eee', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                  <div style={{ padding: '10px 12px', borderBottom: '1px solid #eee', fontWeight: 600, fontSize: 13, background: '#f7f8fa' }}>
+                    Cine a modificat ({viewing.cellChanges.length})
+                  </div>
+                  <div style={{ flex: 1, overflowY: 'auto' }}>
+                    {viewing.cellChanges.map((c) => (
                       <div key={c.id} style={{ padding: '8px 12px', borderBottom: '1px solid #f3f3f3', fontSize: 12 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', color: '#555' }}>
                           <strong>{c.user_email || '—'}</strong>
@@ -439,16 +508,15 @@ export function SheetHistory() {
                           <span style={{ color: '#1b5e20', fontWeight: 600 }}>{c.new_value || '(șters)'}</span>
                         </div>
                       </div>
-                    ))
-                  )}
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
         </div>
       )}
 
-      {/* Deletion before/after preview */}
       {delView && (
         <div
           onClick={() => setDelView(null)}
