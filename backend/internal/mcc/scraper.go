@@ -2,6 +2,7 @@ package mcc
 
 import (
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
@@ -26,6 +27,11 @@ func (s *Scraper) ParseLoadTable(html string) ([]RawMccShipment, error) {
 	// Find table with id=LoadTenderListFormSEARCH_RESULTSTableID
 	table := doc.Find("table#LoadTenderListFormSEARCH_RESULTSTableID")
 	if table.Length() == 0 {
+		// Debug: log available table IDs
+		doc.Find("table").Each(func(i int, s *goquery.Selection) {
+			id, _ := s.Attr("id")
+			log.Printf("Found table #%d: id=%q", i, id)
+		})
 		return nil, fmt.Errorf("load table not found in HTML")
 	}
 
@@ -35,7 +41,37 @@ func (s *Scraper) ParseLoadTable(html string) ([]RawMccShipment, error) {
 		headers = append(headers, strings.TrimSpace(s.Text()))
 	})
 
+	// If no <th> headers, try <td> headers
 	if len(headers) == 0 {
+		table.Find("tr.tableColumnHeadings td").Each(func(i int, s *goquery.Selection) {
+			headers = append(headers, strings.TrimSpace(s.Text()))
+		})
+	}
+
+	if len(headers) == 0 {
+		// Debug: inspect table structure
+		log.Printf("Table found but headers not found. Inspecting structure:")
+
+		// Check for any tr elements
+		allRows := table.Find("tr")
+		log.Printf("Total rows in table: %d", allRows.Length())
+
+		// Check for first few rows
+		table.Find("tr").Each(func(i int, row *goquery.Selection) {
+			if i < 3 {
+				class, _ := row.Attr("class")
+				cells := row.Find("td, th")
+				firstCellText := ""
+				if cells.Length() > 0 {
+					firstCellText = strings.TrimSpace(cells.First().Text())
+					if len(firstCellText) > 50 {
+						firstCellText = firstCellText[:50]
+					}
+				}
+				log.Printf("Row %d: class=%q, cells=%d, first_cell=%q", i, class, cells.Length(), firstCellText)
+			}
+		})
+
 		return nil, fmt.Errorf("table headers not found")
 	}
 
