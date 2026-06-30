@@ -129,9 +129,9 @@ function buildPlainPreview(data: any, highlight?: Set<string>, color = '#ffcdd2'
   for (const [key, value] of map) {
     const [r, c] = key.split(',').map(Number)
     maxR = Math.max(maxR, r); maxC = Math.max(maxC, c)
-    const cell: any = { v: value, m: value }
-    if (highlight?.has(key)) { cell.bg = color; cell.fc = '#b71c1c' }
-    celldata.push({ r, c, v: cell })
+    const vObj: any = { v: value, m: value }
+    if (highlight?.has(key)) { vObj.bg = color; vObj.fc = '#b71c1c' }
+    celldata.push({ r, c, v: vObj })
   }
   return {
     id: 'preview', name: 'Foaie', status: 1, order: 0,
