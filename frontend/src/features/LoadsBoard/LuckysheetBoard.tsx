@@ -309,6 +309,10 @@ export function LuckysheetBoard() {
   const isReadOnlyRef = useRef(isReadOnly);
   isReadOnlyRef.current = isReadOnly;
 
+  // Track if we just did a delete/clear so we don't block empty-save on purpose.
+  // After delete/clear, save empty sheet — that's intentional. Reset after 2s.
+  const recentDeleteRef = useRef(false);
+
   const deleteMutateRef = useRef(deleteMutation.mutate);
   deleteMutateRef.current = deleteMutation.mutate;
 
@@ -364,10 +368,11 @@ export function LuckysheetBoard() {
     if (!wb?.getAllSheets) return;
     try {
       const allSheets = wb.getAllSheets() ?? [];
-      // SAFETY GUARD: never overwrite the saved document with an empty workbook.
-      // An init/refetch race can fire onChange right after the (empty) grid
-      // mounts; without this guard that would wipe real data on every reload.
-      if (!allSheets.some(sheetHasContent)) {
+      // SAFETY GUARD: never overwrite the saved document with an empty workbook,
+      // UNLESS we just did a delete/clear (recentDeleteRef). An init/refetch race can
+      // fire onChange right after the (empty) grid mounts, but a user's intentional
+      // Ctrl+A + Backspace should be saved as an empty sheet.
+      if (!allSheets.some(sheetHasContent) && !recentDeleteRef.current) {
         console.warn('[saveSheet] skipped — workbook has no cell values (would wipe data)');
         return;
       }
@@ -579,12 +584,11 @@ export function LuckysheetBoard() {
     const name = after[0]?.name ?? 'Loads';
 
     const del = detectDeletion(ops);
-    // SAFETY: never let a delete-event persist an empty workbook. A spurious
-    // delete op while the sheet is transiently empty (e.g. just after load)
-    // would otherwise wipe the whole document, bypassing the doSave guard.
-    if (del.isDelete && Array.isArray(after) && after.some(sheetHasContent)) {
-      // Cancel a pending normal save — the delete-event persists the new state
-      // AND keeps before/after versions + an audit entry.
+    if (del.isDelete) {
+      // Delete-event is atomic: saves before/after snapshots regardless of content.
+      // Even if after is empty (user deleted everything), that's a valid delete.
+      recentDeleteRef.current = true;
+      setTimeout(() => { recentDeleteRef.current = false; }, 2000);
       if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null; }
       queryClient.setQueryData(['sheet-doc'], { name, data: after });
       saveDeleteEvent({ name, before, after, action: del.action, details: del.details })
