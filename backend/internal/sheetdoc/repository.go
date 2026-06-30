@@ -40,6 +40,36 @@ func (r *Repository) Get(ctx context.Context) (*SheetDocument, error) {
 	return &d, nil
 }
 
+// GetByID returns a sheet document by ID
+func (r *Repository) GetByID(ctx context.Context, id int) (*SheetDocument, error) {
+	query := `SELECT id, name, data, updated_at, last_edited_by
+		FROM sheet_documents WHERE id = $1`
+
+	var d SheetDocument
+	err := r.db.QueryRow(ctx, query, id).Scan(&d.ID, &d.Name, &d.Data, &d.UpdatedAt, &d.LastEditedBy)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get sheet document by id: %w", err)
+	}
+	return &d, nil
+}
+
+// Update updates the sheet document data
+func (r *Repository) Update(ctx context.Context, id int, data json.RawMessage) error {
+	if len(data) == 0 {
+		data = json.RawMessage("{}")
+	}
+	_, err := r.db.Exec(ctx,
+		`UPDATE sheet_documents SET data = $1, updated_at = NOW() WHERE id = $2`,
+		data, id)
+	if err != nil {
+		return fmt.Errorf("update sheet document: %w", err)
+	}
+	return nil
+}
+
 // Save upserts the single global sheet document with the full workbook snapshot.
 // When reason == "manual" a version is always recorded; otherwise an "auto"
 // version is only recorded if the last version is older than the throttle window.
@@ -182,6 +212,22 @@ func (r *Repository) insertVersion(ctx context.Context, name string, data json.R
 		name, data, reason, userID, userEmail)
 	if err != nil {
 		return fmt.Errorf("insert version: %w", err)
+	}
+	return nil
+}
+
+// CreateVersion records a version snapshot
+func (r *Repository) CreateVersion(ctx context.Context, docID int, data json.RawMessage, reason string, userID *int64, userEmail string) error {
+	var uid interface{}
+	if userID != nil {
+		uid = *userID
+	}
+	_, err := r.db.Exec(ctx,
+		`INSERT INTO sheet_versions (name, data, reason, created_by, created_by_email)
+		 VALUES ('Loads', $1, $2, $3, $4)`,
+		data, reason, uid, userEmail)
+	if err != nil {
+		return fmt.Errorf("create version: %w", err)
 	}
 	return nil
 }

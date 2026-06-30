@@ -24,6 +24,13 @@ type Config struct {
 	SyncInterval         time.Duration
 	SyncEnabled          bool
 
+	MCCEnabled           bool
+	MCCBaseURL           string
+	MCCLoginUser         string
+	MCCLoginToken        string
+	MCCNavpadContextID   string
+	MCCSyncInterval      time.Duration
+
 	JWTSecret     string
 	JWTTTL        time.Duration
 	CORSOrigins   []string
@@ -46,6 +53,13 @@ func Load() *Config {
 		GoogleServiceAccount: getEnv("GOOGLE_SERVICE_ACCOUNT", ""),
 		SyncInterval:         getEnvDuration("SYNC_INTERVAL_MINUTES", 10),
 		SyncEnabled:          getEnvBool("SYNC_ENABLED", false),
+
+		MCCEnabled:         getEnvBool("MCC_ENABLED", false),
+		MCCBaseURL:         getEnv("MCC_BASE_URL", "https://abus-tms-pr1.jdadelivers.com"),
+		MCCLoginUser:       getEnv("MCC_LOGIN_USER", "BVBM"),
+		MCCLoginToken:      getEnv("MCC_LOGIN_TOKEN", ""),
+		MCCNavpadContextID: getEnv("MCC_NAVPAD_CONTEXT_ID", "1422331"),
+		MCCSyncInterval:    getEnvDuration("MCC_SYNC_INTERVAL_MINUTES", 5),
 
 		JWTSecret:   getEnv("JWT_SECRET", "super_secret_key_change_in_prod"),
 		JWTTTL:      getEnvDuration("JWT_TTL_HOURS", 168),

@@ -84,7 +84,7 @@ func (m *IPMiddleware) Handler() fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		path := c.Path()
 
-		if strings.HasPrefix(path, "/api/allowed-ips") || path == "/api/auth/login" || path == "/api/sync" || path == "/ws" {
+		if strings.HasPrefix(path, "/api/allowed-ips") || path == "/api/auth/login" || path == "/api/sync" || path == "/api/mcc/sync" || path == "/ws" {
 			return c.Next()
 		}
 

@@ -56,6 +56,12 @@ services:
       SYNC_ENABLED: "true"
       GOOGLE_SHEET_ID: "1_Ri5kpUwYzIXW1VfJ4r7qARAEgYbLN4CSNLfMqkKoss"
       GOOGLE_SERVICE_ACCOUNT: "/app/service-account.json"
+      MCC_ENABLED: "true"
+      MCC_BASE_URL: "https://abus-tms-pr1.jdadelivers.com"
+      MCC_LOGIN_USER: "BVBM"
+      MCC_LOGIN_TOKEN: "2278716|3257433|1775376|3823906|13835|3147860|3987922|1888210|1593172|2997170|2159210|2159210|2853522|1961031|4307781|4307781|1991130|2034342|"  # Token from DevTools LoginViewController.jsp POST
+      MCC_NAVPAD_CONTEXT_ID: "1422331"
+      MCC_SYNC_INTERVAL_MINUTES: "5"
     volumes:
       - ./backend/service-account.json:/app/service-account.json:ro
     depends_on:

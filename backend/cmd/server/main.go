@@ -11,6 +11,7 @@ import (
 	"bvb-datatable/internal/db"
 	"bvb-datatable/internal/layout"
 	"bvb-datatable/internal/loads"
+	"bvb-datatable/internal/mcc"
 	"bvb-datatable/internal/sheetdoc"
 	"bvb-datatable/internal/sheets"
 	"bvb-datatable/internal/users"
@@ -133,9 +134,58 @@ func main() {
 
 	api.Use(allowedIPsMiddleware.Handler())
 
+	// Initialize MCC sync if enabled
+	var mccSync *mcc.Sync
+	if cfg.MCCEnabled && cfg.MCCLoginToken != "" {
+		mccClient := mcc.NewClient(cfg.MCCBaseURL, cfg.MCCLoginUser, cfg.MCCLoginToken)
+		mccScraper := mcc.NewScraper()
+		mccRepo := mcc.NewRepository(pgPool)
+		mccSync = mcc.NewSync(mccClient, mccScraper, mccRepo, pgPool, sheetDocRepo)
+		mccSync.SetCallbacks(
+			func(inserted, updated int) {
+				wsHub.Broadcast(ws.Message{
+					Type:    "mcc.synced",
+					Payload: map[string]interface{}{"inserted": inserted, "updated": updated},
+				})
+			},
+			func(err error) {
+				wsHub.Broadcast(ws.Message{
+					Type:    "mcc.error",
+					Payload: map[string]interface{}{"error": err.Error()},
+				})
+			},
+		)
+
+		go func() {
+			ticker := time.NewTicker(cfg.MCCSyncInterval)
+			defer ticker.Stop()
+
+			// Run sync at startup
+			if err := mccSync.Sync(context.Background()); err != nil {
+				log.Println("Initial MCC sync error:", err)
+			}
+
+			// Run sync on interval
+			for range ticker.C {
+				if err := mccSync.Sync(context.Background()); err != nil {
+					log.Println("MCC sync error:", err)
+				}
+			}
+		}()
+
+		log.Printf("MCC sync enabled, interval: %v", cfg.MCCSyncInterval)
+	} else {
+		log.Println("MCC sync disabled (MCC_ENABLED off or no token)")
+	}
+
 	if sheetSync != nil {
 		syncHandler := sheets.NewHandler(sheetSync)
 		api.Post("/sync", authMW, auth.RequireRoles("admin", "root"), syncHandler.TriggerSync)
+	}
+
+	if mccSync != nil {
+		mccHandler := mcc.NewHandler(mccSync)
+		api.Post("/mcc/sync", authMW, auth.RequireRoles("admin", "root"), mccHandler.TriggerSync)
 	}
 
 	app.Get("/ws", func(c *fiber.Ctx) error {
