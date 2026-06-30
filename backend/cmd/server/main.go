@@ -87,6 +87,7 @@ func main() {
 	app := fiber.New(fiber.Config{
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
+		BodyLimit:    50 * 1024 * 1024, // 50MB for large sheet paste/save
 	})
 
 	app.Use(logger.New())

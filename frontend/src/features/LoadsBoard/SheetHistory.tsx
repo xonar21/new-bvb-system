@@ -144,6 +144,7 @@ interface ViewState {
   preview: any[]
   changeCount: number
   hasPrev: boolean
+  cellChanges: CellChange[]
 }
 
 interface DelViewState {
@@ -157,7 +158,7 @@ interface DelViewState {
 // Full-page admin view of sheet modification history: versions (snapshots over
 // time, who/when) + the deletion audit log, with restore.
 export function SheetHistory() {
-  const [tab, setTab] = useState<'changes' | 'versions' | 'audit'>('changes')
+  const [tab, setTab] = useState<'versions' | 'audit'>('versions')
   const [versions, setVersions] = useState<SheetVersionMeta[]>([])
   const [audit, setAudit] = useState<AuditEntry[]>([])
   const [changes, setChanges] = useState<CellChange[]>([])
@@ -205,7 +206,15 @@ export function SheetHistory() {
       const prevMeta = versions[index + 1] // next item is older
       const prev = prevMeta ? await getSheetVersion(prevMeta.id) : null
       const { sheet, changeCount } = buildDiffPreview(cur.data, prev?.data)
-      setViewing({ meta: cur, preview: [sheet], changeCount, hasPrev: !!prev })
+      // Cell-level edits that happened between the previous snapshot and this
+      // one — i.e. who changed which cell, from what value to what.
+      const tCur = new Date(cur.created_at).getTime()
+      const tPrev = prevMeta ? new Date(prevMeta.created_at).getTime() : 0
+      const cellChanges = changes.filter((c) => {
+        const t = new Date(c.created_at).getTime()
+        return t > tPrev && t <= tCur
+      })
+      setViewing({ meta: cur, preview: [sheet], changeCount, hasPrev: !!prev, cellChanges })
     } catch (e) {
       console.warn('[history] view failed', e)
     } finally {
@@ -256,7 +265,7 @@ export function SheetHistory() {
       </div>
 
       <div style={{ display: 'flex', gap: '6px', marginBottom: '14px' }}>
-        {(['changes', 'versions', 'audit'] as const).map((t) => (
+        {(['versions', 'audit'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -267,46 +276,13 @@ export function SheetHistory() {
               color: tab === t ? '#fff' : '#555',
             }}
           >
-            {t === 'changes' ? 'Modificări celule' : t === 'versions' ? 'Versiuni (snapshot)' : 'Jurnal ștergeri'}
+            {t === 'versions' ? 'Versiuni (snapshot)' : 'Jurnal ștergeri'}
           </button>
         ))}
       </div>
 
       {loading ? (
         <div style={{ color: '#888', textAlign: 'center', padding: '40px' }}>Se încarcă…</div>
-      ) : tab === 'changes' ? (
-        changes.length === 0 ? (
-          <div style={{ color: '#888', textAlign: 'center', padding: '40px' }}>Nicio modificare de celulă înregistrată încă.</div>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', background: '#fff', borderRadius: '8px', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-            <thead>
-              <tr style={{ textAlign: 'left', color: '#666', background: '#f7f8fa' }}>
-                <th style={{ padding: '10px 12px' }}>Când</th>
-                <th style={{ padding: '10px 12px' }}>Utilizator</th>
-                <th style={{ padding: '10px 12px' }}>Celulă</th>
-                <th style={{ padding: '10px 12px' }}>Valoare veche</th>
-                <th style={{ padding: '10px 12px' }}>Valoare nouă</th>
-              </tr>
-            </thead>
-            <tbody>
-              {changes.map((c) => (
-                <tr key={c.id} style={{ borderTop: '1px solid #f0f0f0' }}>
-                  <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>{fmt(c.created_at)}</td>
-                  <td style={{ padding: '10px 12px' }}>{c.user_email || '—'}</td>
-                  <td style={{ padding: '10px 12px', fontFamily: 'monospace' }}>
-                    Rând {c.row_idx + 1}, {colLetter(c.col_idx)}
-                  </td>
-                  <td style={{ padding: '10px 12px', color: '#b71c1c', background: '#fff5f5', textDecoration: c.old_value ? 'line-through' : 'none' }}>
-                    {c.old_value || <span style={{ color: '#bbb' }}>(gol)</span>}
-                  </td>
-                  <td style={{ padding: '10px 12px', color: '#1b5e20', background: '#f1f8f1' }}>
-                    {c.new_value || <span style={{ color: '#bbb' }}>(șters)</span>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )
       ) : tab === 'versions' ? (
         versions.length === 0 ? (
           <div style={{ color: '#888', textAlign: 'center', padding: '40px' }}>Nicio versiune încă.</div>
@@ -431,13 +407,42 @@ export function SheetHistory() {
                 </button>
               </div>
             </div>
-            <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-              <Workbook
-                data={viewing.preview}
-                allowEdit={false}
-                showToolbar={false}
-                showFormulaBar={false}
-              />
+            <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+              <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+                <Workbook
+                  data={viewing.preview}
+                  allowEdit={false}
+                  showToolbar={false}
+                  showFormulaBar={false}
+                />
+              </div>
+              {/* Who changed what, from which value to which */}
+              <div style={{ width: 340, borderLeft: '1px solid #eee', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                <div style={{ padding: '10px 12px', borderBottom: '1px solid #eee', fontWeight: 600, fontSize: 13, background: '#f7f8fa' }}>
+                  Cine a modificat ({viewing.cellChanges.length})
+                </div>
+                <div style={{ flex: 1, overflowY: 'auto' }}>
+                  {viewing.cellChanges.length === 0 ? (
+                    <div style={{ padding: 16, color: '#999', fontSize: 12 }}>
+                      Nicio modificare de celulă înregistrată pentru această versiune.
+                    </div>
+                  ) : (
+                    viewing.cellChanges.map((c) => (
+                      <div key={c.id} style={{ padding: '8px 12px', borderBottom: '1px solid #f3f3f3', fontSize: 12 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#555' }}>
+                          <strong>{c.user_email || '—'}</strong>
+                          <span style={{ fontFamily: 'monospace', color: '#777' }}>Rând {c.row_idx + 1}, {colLetter(c.col_idx)}</span>
+                        </div>
+                        <div style={{ marginTop: 3 }}>
+                          <span style={{ color: '#b71c1c', textDecoration: c.old_value ? 'line-through' : 'none' }}>{c.old_value || '(gol)'}</span>
+                          <span style={{ color: '#999', margin: '0 6px' }}>→</span>
+                          <span style={{ color: '#1b5e20', fontWeight: 600 }}>{c.new_value || '(șters)'}</span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </div>

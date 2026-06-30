@@ -640,7 +640,15 @@ export function LuckysheetBoard() {
     } else {
       send(JSON.stringify({ type: 'cell.bulk-update', payload: { updates } }));
     }
-  }, []);
+
+    // On large paste (>100 cells), Fortune Sheet may not trigger enough
+    // onChange events, so debounce never fires. Force a save immediately
+    // after the paste is applied (setTimeout lets Fortune Sheet DOM update first).
+    if (updates.length > 100) {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => doSave('auto'), 300);
+    }
+  }, [doSave]);
 
   // ── Blur focus on unmount ─────────────────────────────────────────────────
   useEffect(() => {
