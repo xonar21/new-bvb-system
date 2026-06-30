@@ -3,6 +3,7 @@ package mcc
 import (
 	"fmt"
 	"log"
+	"os"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
@@ -19,6 +20,10 @@ func NewScraper() *Scraper {
 
 // ParseLoadTable extracts shipment data from HTML table
 func (s *Scraper) ParseLoadTable(html string) ([]RawMccShipment, error) {
+	// Save HTML to disk for debugging
+	os.WriteFile("/tmp/mcc_jda_response.html", []byte(html), 0644)
+	log.Printf("JDA HTML saved to /tmp/mcc_jda_response.html (%d bytes)", len(html))
+
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
 	if err != nil {
 		return nil, fmt.Errorf("parse html failed: %w", err)

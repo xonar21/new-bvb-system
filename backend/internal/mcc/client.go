@@ -125,14 +125,42 @@ func (c *Client) FetchLoadTable(navpadContextID string) (string, error) {
 		return "", fmt.Errorf("create table request failed: %w", err)
 	}
 
-	tableReq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-	tableReq.Header.Set("Referer", c.baseURL+"/tm/admin/LoginView.jsp")
+	// Match browser headers
+	tableReq.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7")
+	// Don't accept compressed responses - Go stdlib auto-decompresses gzip but not br/zstd
+	tableReq.Header.Set("Accept-Encoding", "identity")
+	tableReq.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	tableReq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36")
+	tableReq.Header.Set("Referer", c.baseURL+"/tm/framework/NavigationController.jsp")
+	tableReq.Header.Set("Sec-Fetch-Dest", "frame")
+	tableReq.Header.Set("Sec-Fetch-Mode", "navigate")
+	tableReq.Header.Set("Sec-Fetch-Site", "same-origin")
+	tableReq.Header.Set("Sec-Fetch-User", "?1")
+	tableReq.Header.Set("Upgrade-Insecure-Requests", "1")
 
 	tableResp, err := c.httpClient.Do(tableReq)
 	if err != nil {
 		return "", fmt.Errorf("table request failed: %w", err)
 	}
 	defer tableResp.Body.Close()
+
+	// Check for session expiration (302 redirect to login)
+	if tableResp.StatusCode == 302 {
+		log.Printf("Session expired (302 redirect detected), re-authenticating...")
+		c.isLoggedIn = false
+		if err := c.Authenticate(); err != nil {
+			return "", fmt.Errorf("session re-authentication failed: %w", err)
+		}
+		// Retry the request with fresh session
+		tableReq2, _ := http.NewRequest("GET", tableURL, nil)
+		tableReq2.Header = tableReq.Header
+		tableResp2, err := c.httpClient.Do(tableReq2)
+		if err != nil {
+			return "", fmt.Errorf("table retry failed: %w", err)
+		}
+		defer tableResp2.Body.Close()
+		tableResp = tableResp2
+	}
 
 	if tableResp.StatusCode != 200 {
 		return "", fmt.Errorf("table fetch failed: status %d", tableResp.StatusCode)
