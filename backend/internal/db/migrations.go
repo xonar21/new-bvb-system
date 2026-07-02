@@ -177,47 +177,6 @@ func Migrate(pool *pgxpool.Pool) {
 	CREATE TRIGGER loads_insert_trigger
 		AFTER INSERT ON loads
 		FOR EACH ROW EXECUTE FUNCTION loads_notify_insert();
-
-	-- MCC Shipments table: versioned snapshots per tracking number
-	CREATE TABLE IF NOT EXISTS mcc_shipments (
-		id                      BIGSERIAL PRIMARY KEY,
-		row_key                 VARCHAR(255),
-		load_id                 VARCHAR(255),
-		load_tracking_number    VARCHAR(255) NOT NULL,
-		response_required_by_date VARCHAR(255),
-		total_distance_miles    NUMERIC(10, 2),
-		stops_in_transit        INTEGER,
-		service                 VARCHAR(255),
-		trailer_equipment_type  VARCHAR(255),
-		total_cost_usd          NUMERIC(12, 2),
-		total_pieces            INTEGER,
-		total_pallets           INTEGER,
-		weight_lb               NUMERIC(12, 2),
-		volume_cuft             NUMERIC(12, 2),
-		origin_address          TEXT,
-		destination_address     TEXT,
-		start_datetime          VARCHAR(255),
-		end_datetime            VARCHAR(255),
-		commodity               VARCHAR(255),
-		tender_request_id       VARCHAR(255),
-		rate                    INTEGER,
-		rate_interval           VARCHAR(100),
-		comments                TEXT,
-		user_id                 BIGINT,
-		is_hot                  BOOLEAN DEFAULT FALSE,
-		order_number            INTEGER,
-		font_size               INTEGER,
-		is_bold                 BOOLEAN DEFAULT FALSE,
-		status_user             VARCHAR(100),
-		is_lock                 BOOLEAN DEFAULT FALSE,
-		is_mcc                  BOOLEAN DEFAULT TRUE,
-		created_at              TIMESTAMPTZ DEFAULT NOW(),
-		updated_at              TIMESTAMPTZ DEFAULT NOW()
-	);
-
-	CREATE INDEX IF NOT EXISTS idx_mcc_shipments_tracking ON mcc_shipments(load_tracking_number);
-	CREATE INDEX IF NOT EXISTS idx_mcc_shipments_created_at ON mcc_shipments(created_at DESC);
-	CREATE INDEX IF NOT EXISTS idx_mcc_shipments_is_lock ON mcc_shipments(is_lock);
 	`
 
 	_, err := pool.Exec(ctx, schema)
