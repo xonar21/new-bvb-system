@@ -111,8 +111,18 @@ func (s *Sync) Run(ctx context.Context) error {
 	}
 
 	// Rândurile existente rămân EXACT cum sunt (păstrăm toate coloanele + stilurile).
+	// Iterăm în ordinea crescătoare a indexului de rând (NU în ordinea random a map-ului)
+	// ca sortarea stabilă de mai jos să păstreze ordinea manuală în cadrul aceleiași date
+	// (altfel rândurile cu aceeași dată s-ar amesteca la fiecare sync, iar drag&drop-ul userului s-ar pierde).
+	existingRowIdxs := make([]int, 0, len(rowsByIdx))
+	for idx := range rowsByIdx {
+		existingRowIdxs = append(existingRowIdxs, idx)
+	}
+	sort.Ints(existingRowIdxs)
+
 	var allRows []row
-	for _, cells := range rowsByIdx {
+	for _, idx := range existingRowIdxs {
+		cells := rowsByIdx[idx]
 		allRows = append(allRows, row{date: parseRowDate(cells), cells: cells})
 	}
 

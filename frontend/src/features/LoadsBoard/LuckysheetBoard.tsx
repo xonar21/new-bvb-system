@@ -4,6 +4,7 @@ import { Workbook } from '@fortune-sheet/react';
 import '@fortune-sheet/react/dist/index.css';
 import { useDeleteLoad } from '../../hooks/useLoads';
 import { useSheetDoc, saveSheetDoc, saveDeleteEvent } from '../../hooks/useSheetDoc';
+import { useRowDragReorder } from './useRowDragReorder';
 import { Load } from '../../types/Load';
 import { useWSStore } from '../../store/wsStore';
 import { useAuthStore } from '../../store/authStore';
@@ -313,6 +314,10 @@ export function LuckysheetBoard() {
   // After delete/clear, save empty sheet — that's intentional. Reset after 2s.
   const recentDeleteRef = useRef(false);
 
+  // True while a row drag-reorder is rewriting cells, so onOp doesn't misread the
+  // block rewrite (which may blank some cells) as a deletion.
+  const isReorderingRef = useRef(false);
+
   const deleteMutateRef = useRef(deleteMutation.mutate);
   deleteMutateRef.current = deleteMutation.mutate;
 
@@ -390,6 +395,17 @@ export function LuckysheetBoard() {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => doSave('auto'), 1200);
   }, [doSave]);
+
+  // Latest doSave for the row-drag hook (stable identity, always current impl).
+  const doSaveRef = useRef(doSave);
+  doSaveRef.current = doSave;
+
+  // Enable dragging a row up/down by its row-number gutter. Re-binds when the
+  // host (re)mounts, i.e. when sheets first load.
+  useRowDragReorder(
+    { hostRef: workbookHostRef, workbookRef, isReadOnlyRef, doSaveRef, isReorderingRef },
+    [sheets.length],
+  );
 
   // Flush any pending save when leaving the page or switching tabs, so a quick
   // edit-then-refresh never loses data.
@@ -583,7 +599,11 @@ export function LuckysheetBoard() {
     const after = wb?.getAllSheets ? wb.getAllSheets() : [];
     const name = after[0]?.name ?? 'Loads';
 
-    const del = detectDeletion(ops);
+    // A row drag-reorder rewrites a block of cells (some may blank) — that is NOT
+    // a deletion, so skip the delete-event path while reordering.
+    const del = isReorderingRef.current
+      ? { isDelete: false, action: 'clear_cells' as const, details: {} }
+      : detectDeletion(ops);
     if (del.isDelete) {
       // Delete-event is atomic: saves before/after snapshots regardless of content.
       // Even if after is empty (user deleted everything), that's a valid delete.
