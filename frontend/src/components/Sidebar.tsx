@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { useAuthStore } from '../store/authStore'
 import { useWSStore } from '../store/wsStore'
 import { useSync } from '../hooks/useSync'
-import { useMccSync } from '../hooks/useMccSync'
 
 interface SidebarProps {
   activeTab: string
@@ -13,9 +12,7 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
   const { user, logout } = useAuthStore()
   const { isConnected, onlineUsers } = useWSStore()
   const syncMutation = useSync()
-  const mccSyncMutation = useMccSync()
   const [syncMsg, setSyncMsg] = useState<string | null>(null)
-  const [mccSyncMsg, setMccSyncMsg] = useState<string | null>(null)
   const isAdmin = user?.role === 'admin' || user?.role === 'root'
 
   // Only admins get navigation tabs. Editors/viewers see just the Loads board
@@ -38,17 +35,6 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
       setSyncMsg('Sync failed')
     }
     setTimeout(() => setSyncMsg(null), 3000)
-  }
-
-  const handleMccSync = async () => {
-    setMccSyncMsg(null)
-    try {
-      await mccSyncMutation.mutateAsync()
-      setMccSyncMsg('MCC sync started')
-    } catch {
-      setMccSyncMsg('MCC sync failed')
-    }
-    setTimeout(() => setMccSyncMsg(null), 3000)
   }
 
   return (
@@ -124,28 +110,6 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
             {syncMsg && (
               <div style={{ fontSize: '11px', color: syncMsg === 'Sync failed' ? '#f44336' : '#4caf50', marginTop: '4px', textAlign: 'center', marginBottom: '8px' }}>
                 {syncMsg}
-              </div>
-            )}
-            <button
-              onClick={handleMccSync}
-              disabled={mccSyncMutation.isPending}
-              style={{
-                padding: '6px 12px',
-                borderRadius: '4px',
-                border: '1px solid #ff9800',
-                background: 'transparent',
-                color: '#ff9800',
-                cursor: mccSyncMutation.isPending ? 'not-allowed' : 'pointer',
-                fontSize: '12px',
-                width: '100%',
-                opacity: mccSyncMutation.isPending ? 0.6 : 1,
-              }}
-            >
-              {mccSyncMutation.isPending ? 'MCC Syncing...' : 'Sync MCC'}
-            </button>
-            {mccSyncMsg && (
-              <div style={{ fontSize: '11px', color: mccSyncMsg === 'MCC sync failed' ? '#f44336' : '#4caf50', marginTop: '4px', textAlign: 'center' }}>
-                {mccSyncMsg}
               </div>
             )}
           </div>

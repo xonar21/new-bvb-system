@@ -128,6 +128,38 @@ func (r *Repository) Save(ctx context.Context, name string, data json.RawMessage
 	return nil
 }
 
+// SaveFromSync upserts the global sheet document from an automated sync (no user
+// attached), then records a version with the given reason. last_edited_by and
+// created_by are left NULL so the FK to users(id) is satisfied without a real user.
+// On conflict it does NOT overwrite last_edited_by, preserving the last human editor.
+func (r *Repository) SaveFromSync(ctx context.Context, name string, data json.RawMessage, reason string) error {
+	if len(data) == 0 {
+		data = json.RawMessage("{}")
+	}
+	if name == "" {
+		name = "Loads"
+	}
+
+	if _, err := r.db.Exec(ctx, `
+		INSERT INTO sheet_documents (id, name, data, updated_at, last_edited_by)
+		VALUES (1, $1, $2, NOW(), NULL)
+		ON CONFLICT (id) DO UPDATE
+			SET name = EXCLUDED.name,
+			    data = EXCLUDED.data,
+			    updated_at = NOW()`,
+		name, data); err != nil {
+		return fmt.Errorf("save sheet document (sync): %w", err)
+	}
+
+	if _, err := r.db.Exec(ctx,
+		`INSERT INTO sheet_versions (name, data, reason, created_by, created_by_email)
+		 VALUES ($1, $2, $3, NULL, $4)`,
+		name, data, reason, "mcc-bot@system"); err != nil {
+		return fmt.Errorf("insert sync version: %w", err)
+	}
+	return nil
+}
+
 // SaveDeleteEvent records the deletion atomically: keep the "before" snapshot,
 // write the new "after" state as current, keep the "after" snapshot, and log
 // who deleted what.

@@ -1,3 +1,9 @@
+# PRODUCTION Configuration
+# Usage: docker compose up --build
+# Frontend: http://localhost:8080
+# Backend API: http://localhost:3001
+# pgAdmin: http://localhost:5050
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -44,6 +50,7 @@ services:
       - "3001:3001"
     environment:
       PORT: "3001"
+      ENV: "production"
       PG_HOST: postgres
       PG_PORT: "5432"
       PG_DB: bvb_datatable
@@ -53,9 +60,16 @@ services:
       JWT_SECRET: "super_secret_key_change_in_prod"
       CORS_ORIGINS: "http://localhost:8080"
       REDIS_ADDR: "redis:6379"
+      # Google Sheets Sync
       SYNC_ENABLED: "true"
+      SYNC_INTERVAL_MINUTES: "10"
       GOOGLE_SHEET_ID: "1_Ri5kpUwYzIXW1VfJ4r7qARAEgYbLN4CSNLfMqkKoss"
       GOOGLE_SERVICE_ACCOUNT: "/app/service-account.json"
+      # Sheet API (MCC/BudExchange) Sync
+      SHEET_API_ENABLED: "true"
+      SHEET_API_BASE_URL: "https://bvbconnect.com"
+      SHEET_API_KEY: "53092aeda6867d9c521b80a6625495779dc1a898800fd1909854858ca1c8987c"
+      SHEET_API_SYNC_INTERVAL_MINUTES: "5"
     volumes:
       - ./backend/service-account.json:/app/service-account.json:ro
     depends_on:
@@ -63,6 +77,21 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - bvb-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: bvb-frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    environment:
+      VITE_API_URL: "http://localhost:8080/api"
+    depends_on:
+      - backend
     networks:
       - bvb-network
 
@@ -78,28 +107,29 @@ services:
       PGADMIN_CONFIG_SERVER_MODE: "False"
     volumes:
       - pgadmin-data:/var/lib/pgadmin
-      - ./infra/pgadmin-servers.json:/pgadmin4/servers.json
     depends_on:
       - postgres
     networks:
       - bvb-network
 
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: bvb-frontend
+  nginx:
+    image: nginx:alpine
+    container_name: bvb-nginx
     restart: unless-stopped
     ports:
-      - "8080:80"
+      - "80:80"
+    volumes:
+      - ./frontend/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       - backend
+      - frontend
     networks:
       - bvb-network
-
-networks:
-  bvb-network:
 
 volumes:
   pgdata:
   pgadmin-data:
+
+networks:
+  bvb-network:
+    driver: bridge

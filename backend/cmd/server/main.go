@@ -11,6 +11,7 @@ import (
 	"bvb-datatable/internal/db"
 	"bvb-datatable/internal/layout"
 	"bvb-datatable/internal/loads"
+	"bvb-datatable/internal/sheetapi"
 	"bvb-datatable/internal/sheetdoc"
 	"bvb-datatable/internal/sheets"
 	"bvb-datatable/internal/users"
@@ -136,6 +137,34 @@ func main() {
 	if sheetSync != nil {
 		syncHandler := sheets.NewHandler(sheetSync)
 		api.Post("/sync", authMW, auth.RequireRoles("admin", "root"), syncHandler.TriggerSync)
+	}
+
+	// Sheet API (MCC/BudExchange loads sync into "AB Loads" sheet)
+	if cfg.SheetAPIEnabled && cfg.SheetAPIKey != "" {
+		apiClient := sheetapi.NewClient(cfg.SheetAPIBaseURL, cfg.SheetAPIKey)
+		apiSync := sheetapi.NewSync(apiClient, sheetDocRepo, wsHub)
+
+		go func() {
+			ticker := time.NewTicker(cfg.SheetAPISyncInterval)
+			defer ticker.Stop()
+
+			if err := apiSync.Run(context.Background()); err != nil {
+				log.Println("Initial Sheet API sync error:", err)
+			}
+
+			for range ticker.C {
+				if err := apiSync.Run(context.Background()); err != nil {
+					log.Println("Sheet API sync error:", err)
+				}
+			}
+		}()
+
+		mccHandler := sheetapi.NewHandler(apiSync)
+		api.Post("/mcc/sync", authMW, auth.RequireRoles("admin", "root"), mccHandler.TriggerSync)
+
+		log.Printf("Sheet API sync enabled, interval: %v", cfg.SheetAPISyncInterval)
+	} else {
+		log.Println("Sheet API sync disabled (SHEET_API_ENABLED off or no API key)")
 	}
 
 	app.Get("/ws", func(c *fiber.Ctx) error {

@@ -24,6 +24,11 @@ type Config struct {
 	SyncInterval         time.Duration
 	SyncEnabled          bool
 
+	SheetAPIEnabled      bool
+	SheetAPIBaseURL      string
+	SheetAPIKey          string
+	SheetAPISyncInterval time.Duration
+
 	JWTSecret     string
 	JWTTTL        time.Duration
 	CORSOrigins   []string
@@ -46,6 +51,11 @@ func Load() *Config {
 		GoogleServiceAccount: getEnv("GOOGLE_SERVICE_ACCOUNT", ""),
 		SyncInterval:         getEnvDuration("SYNC_INTERVAL_MINUTES", 10),
 		SyncEnabled:          getEnvBool("SYNC_ENABLED", false),
+
+		SheetAPIEnabled:      getEnvBool("SHEET_API_ENABLED", false),
+		SheetAPIBaseURL:      getEnv("SHEET_API_BASE_URL", "https://bvbconnect.com"),
+		SheetAPIKey:          getEnv("SHEET_API_KEY", ""),
+		SheetAPISyncInterval: getEnvDuration("SHEET_API_SYNC_INTERVAL_MINUTES", 5),
 
 		JWTSecret:   getEnv("JWT_SECRET", "super_secret_key_change_in_prod"),
 		JWTTTL:      getEnvDuration("JWT_TTL_HOURS", 168),

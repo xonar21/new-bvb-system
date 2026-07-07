@@ -1,13 +1,29 @@
+# DEVELOPMENT Configuration (overrides docker-compose.yml)
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+# Frontend: http://localhost:5173 (Vite HMR)
+# Backend: http://localhost:3001
+# pgAdmin: http://localhost:5050
+
 services:
+  postgres:
+    # Inherit from docker-compose.yml, but expose for local development
+    container_name: bvb-postgres-dev
+
+  redis:
+    # Inherit from docker-compose.yml
+    container_name: bvb-redis-dev
+
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile.dev
     container_name: bvb-backend-dev
+    restart: unless-stopped
     ports:
       - "3001:3001"
     environment:
       PORT: "3001"
+      ENV: "development"
       PG_HOST: postgres
       PG_PORT: "5432"
       PG_DB: bvb_datatable
@@ -15,17 +31,45 @@ services:
       PG_PASSWORD: secret
       PG_SSLMODE: disable
       JWT_SECRET: "super_secret_key_change_in_prod"
-      CORS_ORIGINS: "http://localhost:5173"
+      CORS_ORIGINS: "http://localhost:5173,http://localhost:3000"
       REDIS_ADDR: "redis:6379"
-      ENV: "development"
-      GOOGLE_SHEET_ID: "1_Ri5kpUwYzIXW1VfJ4r7qARAEgYbLN4CSNLfMqkKoss"
+      # Google Sheets Sync
+      SYNC_ENABLED: "false"
+      SYNC_INTERVAL_MINUTES: "10"
+      GOOGLE_SHEET_ID: ""
       GOOGLE_SERVICE_ACCOUNT: "/app/service-account.json"
+      # Sheet API (MCC/BudExchange) Sync
+      SHEET_API_ENABLED: "true"
+      SHEET_API_BASE_URL: "https://bvbconnect.com"
+      SHEET_API_KEY: "53092aeda6867d9c521b80a6625495779dc1a898800fd1909854858ca1c8987c"
+      SHEET_API_SYNC_INTERVAL_MINUTES: "5"
     volumes:
-      - ./backend/service-account.json:/app/service-account.json:ro
       - ./backend:/app
+      - ./backend/service-account.json:/app/service-account.json:ro
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - bvb-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: bvb-frontend-dev
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: "http://localhost:3001"
+      VITE_WS_URL: "ws://localhost:3001"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
     networks:
       - bvb-network
 
@@ -41,24 +85,5 @@ services:
       PGADMIN_CONFIG_SERVER_MODE: "False"
     depends_on:
       - postgres
-    networks:
-      - bvb-network
-
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile.dev
-    container_name: bvb-frontend-dev
-    ports:
-      - "5173:5173"
-    environment:
-      VITE_PROXY_API: http://backend:3001
-      VITE_PROXY_WS: ws://backend:3001
-      VITE_API_URL: http://localhost:3001
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    depends_on:
-      - backend
     networks:
       - bvb-network
