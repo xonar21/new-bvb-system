@@ -23,6 +23,7 @@ type SheetLoad struct {
 	IsHot        bool      `json:"isHot"`
 	IsMCC        bool      `json:"isMCC"`
 	MccType      string    `json:"mccType"`
+	Equipment    string    `json:"equipment"`
 }
 
 type listResponse struct {
