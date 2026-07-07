@@ -165,7 +165,7 @@ func (s *Sync) Run(ctx context.Context) error {
 	}
 	if _, has := config["columnlen"]; !has {
 		config["columnlen"] = map[string]interface{}{
-			"0": 110, "1": 90, "2": 220, "3": 260, "4": 150, "5": 120, "6": 90, "7": 70,
+			"0": 110, "1": 90, "2": 220, "3": 260, "4": 150, "5": 120, "6": 90, "7": 70, "8": 140,
 		}
 	}
 	sheet["config"] = config
@@ -273,6 +273,11 @@ func newRowCells(l SheetLoad, isToday, isTomorrow bool) []Cell {
 	if l.IsHot {
 		cells = append(cells, Cell{C: 7, V: map[string]interface{}{
 			"v": "HOT", "m": "HOT", "ht": 0, "bl": 1, "fc": "#000000", "bg": "#ff0000", // H centru, bold negru, fundal roșu
+		}})
+	}
+	if l.IsMCC && l.MccType != "" {
+		cells = append(cells, Cell{C: 8, V: map[string]interface{}{
+			"v": l.MccType, "m": l.MccType, "ht": 0, "bg": "#ffe599", // I centru, galben
 		}})
 	}
 	return cells
