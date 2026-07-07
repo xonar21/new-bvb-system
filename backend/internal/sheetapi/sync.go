@@ -1,6 +1,7 @@
 package sheetapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -27,22 +28,23 @@ func NewSync(client *Client, sheetRepo *sheetdoc.Repository, wsHub *ws.Hub) *Syn
 	}
 }
 
-// Cell representa o celulă din celldata.
+// Cell = o celulă din celldata (format sparse Fortune Sheet).
 type Cell struct {
-	R int                   `json:"r"`
-	C int                   `json:"c"`
+	R int                    `json:"r"`
+	C int                    `json:"c"`
 	V map[string]interface{} `json:"v"`
 }
 
-// Sheet e una din foile din workbook.
-type Sheet struct {
-	Name     string                 `json:"name"`
-	ID       string                 `json:"id"`
-	Celldata []Cell                 `json:"celldata"`
-	Config   map[string]interface{} `json:"config,omitempty"`
+// row = un rând de date (toate celulele lui) + data de pickup (pentru sortare).
+type row struct {
+	date  time.Time
+	cells []Cell
 }
 
-// Run execută un ciclu de sync: fetch API → merge în sheet → salvează + broadcast.
+const targetSheetName = "AB Loads"
+
+// Run: fetch API → adaugă DOAR gate code-uri noi → re-sortează după dată → salvează.
+// NU atinge rândurile existente (editările userului rămân). NU pierde câmpurile foii.
 func (s *Sync) Run(ctx context.Context) error {
 	loads, err := s.client.FetchAll(ctx)
 	if err != nil {
@@ -50,20 +52,18 @@ func (s *Sync) Run(ctx context.Context) error {
 		s.wsHub.Broadcast(ws.Message{Type: "mcc.error", Payload: map[string]interface{}{"error": err.Error()}})
 		return err
 	}
-
 	log.Printf("[MCC Sync] fetched %d loads from API", len(loads))
 
-	// Citește sheet-ul curent
 	doc, err := s.sheetRepo.Get(ctx)
 	if err != nil {
 		return fmt.Errorf("get sheet document: %w", err)
 	}
 
+	// Deserializăm foile ca map-uri generice → NU pierdem niciun câmp Fortune Sheet
+	// (row, column, status, order, merge, frozen, config etc.).
 	docName := "Loads"
-	var sheets []Sheet
-	if doc == nil || len(doc.Data) == 0 || string(doc.Data) == "{}" {
-		sheets = []Sheet{{Name: "AB Loads", ID: "sheet-1", Celldata: []Cell{}}}
-	} else {
+	var sheets []map[string]interface{}
+	if doc != nil && len(doc.Data) > 0 && string(doc.Data) != "{}" {
 		if doc.Name != "" {
 			docName = doc.Name
 		}
@@ -72,246 +72,208 @@ func (s *Sync) Run(ctx context.Context) error {
 		}
 	}
 
-	// Găsește indexul foii „AB Loads" (sau o creează)
+	// Găsește (sau creează) foaia „AB Loads".
 	sheetIdx := -1
 	for i := range sheets {
-		if strings.EqualFold(sheets[i].Name, "AB Loads") {
+		if name, _ := sheets[i]["name"].(string); strings.EqualFold(name, targetSheetName) {
 			sheetIdx = i
 			break
 		}
 	}
 	if sheetIdx == -1 {
-		sheets = append(sheets, Sheet{
-			Name:     "AB Loads",
-			ID:       "sheet-1",
-			Celldata: []Cell{},
-			Config: map[string]interface{}{
-				"columnlen": map[string]interface{}{
-					"0": 120, "1": 100, "2": 200, "3": 250, "4": 150, "5": 120, "6": 100, "7": 80,
-				},
-			},
+		sheets = append(sheets, map[string]interface{}{
+			"name":     targetSheetName,
+			"id":       "sheet-mcc",
+			"status":   1,
+			"order":    len(sheets),
+			"row":      200,
+			"column":   8,
+			"celldata": []Cell{},
 		})
 		sheetIdx = len(sheets) - 1
 	}
-	sheet := &sheets[sheetIdx]
+	sheet := sheets[sheetIdx]
 
-	// Inițializează config dacă lipsește
-	if sheet.Config == nil {
-		sheet.Config = make(map[string]interface{})
-	}
-	if _, ok := sheet.Config["columnlen"]; !ok {
-		sheet.Config["columnlen"] = map[string]interface{}{
-			"0": 120, "1": 100, "2": 200, "3": 250, "4": 150, "5": 120, "6": 100, "7": 80,
-		}
-	}
+	// Extrage celulele existente.
+	existingCells := extractCells(sheet["celldata"])
 
-	// Ensure banner row (rândul 0) exists
-	ensureBannerRow(sheet)
-
-	// Construiește index după gate code (col F = c:5)
-	index := make(map[string]int)
-	maxRow := 0
-	for _, cell := range sheet.Celldata {
-		if cell.C == 5 && cell.R > 0 { // col F, skip banner
-			if vInterface, ok := cell.V["v"]; ok {
-				gateCode := fmt.Sprintf("%v", vInterface)
-				normGate := normalizeGateCode(gateCode)
-				index[normGate] = cell.R
-				if cell.R > maxRow {
-					maxRow = cell.R
-				}
+	// Indexează rândurile existente după gate code.
+	rowsByIdx := map[int][]Cell{}
+	existingGates := map[string]bool{}
+	for _, c := range existingCells {
+		rowsByIdx[c.R] = append(rowsByIdx[c.R], c)
+		if c.C == 5 {
+			if v, ok := c.V["v"]; ok {
+				existingGates[normalizeGateCode(fmt.Sprintf("%v", v))] = true
 			}
 		}
 	}
 
-	// Merge: upsert API loads în sheet
-	today := time.Now().Truncate(24 * time.Hour)
-	tomorrow := today.AddDate(0, 0, 1)
-
-	apiGates := make(map[string]bool)
-	noGateCodeCount := 0
-	for _, load := range loads {
-		if load.GateCode == "" {
-			noGateCodeCount++
-			log.Printf("[MCC Sync] load without gateCode: %s → %s (%s)", load.OriginCity, load.DestCity, load.Equipment)
-			continue // skip loads without gate code
-		}
-
-		norm := normalizeGateCode(load.GateCode)
-		apiGates[norm] = true
-
-		pickupDate := load.PickupDate.Truncate(24 * time.Hour)
-		isToday := pickupDate == today
-		isTomorrow := pickupDate == tomorrow
-
-		cells := cellsForLoad(load, isToday, isTomorrow)
-
-		if r, exists := index[norm]; exists {
-			// UPDATE: scrie coloanele API pe rândul existent
-			for c, cellVal := range cells {
-				setCell(sheet, r, c, cellVal)
-			}
-		} else {
-			// INSERT: rând nou
-			r = maxRow + 1
-			maxRow = r
-			for c, cellVal := range cells {
-				setCell(sheet, r, c, cellVal)
-			}
-		}
+	// Rândurile existente rămân EXACT cum sunt (păstrăm toate coloanele + stilurile).
+	var allRows []row
+	for _, cells := range rowsByIdx {
+		allRows = append(allRows, row{date: parseRowDate(cells), cells: cells})
 	}
 
-	// Marker "gone" loads: cele care erau în index dar nu mai vin din API
-	for norm, r := range index {
-		if !apiGates[norm] {
-			log.Printf("[MCC Sync] load %s gone from API (rând %d)", norm, r)
+	// Adaugă DOAR loadurile cu gate code nou.
+	now := time.Now().UTC()
+	ty, tmo, td := now.Date()
+	nx := now.AddDate(0, 0, 1)
+	ny, nmo, nd := nx.Date()
+
+	added, skippedNoGate, skippedExisting := 0, 0, 0
+	for _, l := range loads {
+		if l.GateCode == "" {
+			skippedNoGate++
+			continue
 		}
+		norm := normalizeGateCode(l.GateCode)
+		if existingGates[norm] {
+			skippedExisting++
+			continue // deja în sheet → nu-l atingem
+		}
+		existingGates[norm] = true
+
+		py, pmo, pd := l.PickupDate.UTC().Date()
+		isToday := py == ty && pmo == tmo && pd == td
+		isTomorrow := py == ny && pmo == nmo && pd == nd
+
+		allRows = append(allRows, row{date: l.PickupDate, cells: newRowCells(l, isToday, isTomorrow)})
+		added++
 	}
 
-	// Sort by date (ascending)
-	sortByDate(sheet)
+	// Re-sortează TOATE rândurile după dată (crescător). Datele neparsabile la coadă.
+	sort.SliceStable(allRows, func(i, j int) bool {
+		return allRows[i].date.Before(allRows[j].date)
+	})
 
-	// Serializează înapoi
+	// Reconstruiește celldata: rândurile de la r=0 în sus (fără banner).
+	var outCells []Cell
+	for i, rw := range allRows {
+		r := i
+		for _, c := range rw.cells {
+			c.R = r
+			outCells = append(outCells, c)
+		}
+	}
+	sheet["celldata"] = outCells
+
+	// Config: pune columnlen default DOAR dacă lipsește (nu suprascrie ce a setat userul).
+	config, _ := sheet["config"].(map[string]interface{})
+	if config == nil {
+		config = map[string]interface{}{}
+	}
+	if _, has := config["columnlen"]; !has {
+		config["columnlen"] = map[string]interface{}{
+			"0": 110, "1": 90, "2": 220, "3": 260, "4": 150, "5": 120, "6": 90, "7": 70,
+		}
+	}
+	sheet["config"] = config
+	sheets[sheetIdx] = sheet
+
 	data, err := json.Marshal(sheets)
 	if err != nil {
 		return fmt.Errorf("marshal sheets: %w", err)
 	}
 
-	// Upsert în sheet_documents (foaia pe care o văd userii) + versiune mcc_sync.
+	// Skip dacă nimic nu s-a schimbat (evită versiuni + broadcast inutile la fiecare 5 min).
+	if doc != nil && bytes.Equal(data, doc.Data) {
+		log.Printf("[MCC Sync] no change (added=0, skippedExisting=%d) — skip save", skippedExisting)
+		return nil
+	}
+
 	if err := s.sheetRepo.SaveFromSync(ctx, docName, data, "mcc_sync"); err != nil {
 		return fmt.Errorf("save sheet: %w", err)
 	}
 
-	importedCount := len(loads) - noGateCodeCount
-	log.Printf("[MCC Sync] merged %d loads into sheet (skipped %d without gateCode), saved", importedCount, noGateCodeCount)
+	log.Printf("[MCC Sync] added %d new loads (skipped %d existing, %d without gate), re-sorted, saved",
+		added, skippedExisting, skippedNoGate)
 
-	// Broadcast WS
 	s.wsHub.Broadcast(ws.Message{
 		Type: "mcc.synced",
 		Payload: map[string]interface{}{
-			"count":     len(loads),
+			"added":     added,
+			"total":     len(allRows),
 			"timestamp": time.Now().Format(time.RFC3339),
 		},
 	})
-
 	return nil
 }
 
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+// extractCells convertește sheet["celldata"] (generic) în []Cell.
+func extractCells(raw interface{}) []Cell {
+	if raw == nil {
+		return nil
+	}
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var cells []Cell
+	if err := json.Unmarshal(b, &cells); err != nil {
+		return nil
+	}
+	return cells
+}
+
+// parseRowDate ia data din coloana A (c==0) a unui rând. Neparsabil → dată mare (la coadă).
+func parseRowDate(cells []Cell) time.Time {
+	for _, c := range cells {
+		if c.C == 0 {
+			if s, ok := c.V["v"].(string); ok {
+				if t, err := time.Parse("1/2/2006", strings.TrimSpace(s)); err == nil {
+					return t
+				}
+			}
+		}
+	}
+	return time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
+}
+
+// normalizeGateCode: strip zerouri la început (0031073812 → 31073812).
 func normalizeGateCode(code string) string {
-	// Strip leading zeros: "0031073812" → "31073812"
-	norm := strings.TrimLeft(code, "0")
+	norm := strings.TrimLeft(strings.TrimSpace(code), "0")
 	if norm == "" {
-		norm = "0"
+		return "0"
 	}
 	return norm
 }
 
-func cellsForLoad(l SheetLoad, isToday, isTomorrow bool) map[int]map[string]interface{} {
-	cells := make(map[int]map[string]interface{})
-
-	// A: Pickup date — right align, colored (azi=red, maine=yellow)
-	dateStr := l.PickupDate.Format("1/2/2006")
-	cellA := map[string]interface{}{"v": dateStr, "m": dateStr, "ha": "right"}
-	if isToday {
-		cellA["bg"] = "#e06666" // red
-	} else if isTomorrow {
-		cellA["bg"] = "#ffff00" // yellow
-	}
-	cells[0] = cellA
-
-	// B: Commodity — map equipment to DRY/REEFER, left align
+// newRowCells construiește celulele unui rând nou din API.
+// Aliniere: ht numeric (0=centru, 1=stânga, 2=dreapta).
+func newRowCells(l SheetLoad, isToday, isTomorrow bool) []Cell {
 	commodity := "DRY"
 	if l.Equipment != "VAN" && l.Equipment != "" {
 		commodity = "REEFER"
 	}
-	cells[1] = map[string]interface{}{"v": commodity, "m": commodity, "al": "left"}
 
-	// C: Pickup city, state, time — center align
-	pickupStr := strings.TrimSpace(fmt.Sprintf("%s, %s %s", l.OriginCity, l.OriginState, l.PickupTime))
-	cells[2] = map[string]interface{}{"v": pickupStr, "m": pickupStr, "al": "center"}
+	dateStr := l.PickupDate.Format("1/2/2006")
+	cellA := map[string]interface{}{"v": dateStr, "m": dateStr, "ht": 2} // dreapta
+	if isToday {
+		cellA["bg"] = "#e06666"
+	} else if isTomorrow {
+		cellA["bg"] = "#ffff00"
+	}
 
-	// D: Delivery city, state, date, time — center align
-	deliveryStr := strings.TrimSpace(fmt.Sprintf("%s, %s %s %s",
+	pickup := strings.TrimSpace(fmt.Sprintf("%s, %s %s", l.OriginCity, l.OriginState, l.PickupTime))
+	delivery := strings.TrimSpace(fmt.Sprintf("%s, %s %s %s",
 		l.DestCity, l.DestState, l.DeliveryDate.Format("01/02"), l.DeliveryTime))
-	cells[3] = map[string]interface{}{"v": deliveryStr, "m": deliveryStr, "al": "center"}
 
-	// E: Empty (manual notes) — center align
-	cells[4] = map[string]interface{}{"v": "", "m": "", "al": "center"}
-
-	// F: Gate code — center align (skip if empty)
-	if l.GateCode != "" {
-		cells[5] = map[string]interface{}{"v": l.GateCode, "m": l.GateCode, "ha": "center"}
+	cells := []Cell{
+		{C: 0, V: cellA},
+		{C: 1, V: map[string]interface{}{"v": commodity, "m": commodity, "ht": 1}},              // B stânga
+		{C: 2, V: map[string]interface{}{"v": pickup, "m": pickup, "ht": 0}},                    // C centru
+		{C: 3, V: map[string]interface{}{"v": delivery, "m": delivery, "ht": 0}},                // D centru
+		{C: 4, V: map[string]interface{}{"v": "", "m": "", "ht": 0}},                            // E centru (manual)
+		{C: 5, V: map[string]interface{}{"v": l.GateCode, "m": l.GateCode, "ht": 0}},            // F centru
+		{C: 6, V: map[string]interface{}{"v": "", "m": "", "ht": 2, "bg": "#cccccc"}},           // G dreapta, gri
 	}
-
-	// G: Rate — right align, always gray background
-	cells[6] = map[string]interface{}{"v": "", "m": "", "al": "right", "bg": "#cccccc"}
-
-	// H: HOT (if applicable) — center align, bold, red text
 	if l.IsHot {
-		cells[7] = map[string]interface{}{
-			"v":  "HOT",
-			"m":  "HOT",
-			"al": "center",
-			"bl": 1,           // bold
-			"fc": "#ff0000",   // red
-		}
+		cells = append(cells, Cell{C: 7, V: map[string]interface{}{
+			"v": "HOT", "m": "HOT", "ht": 0, "bl": 1, "fc": "#ff0000", // H centru, bold, roșu
+		}})
 	}
-
 	return cells
-}
-
-func setCell(sheet *Sheet, r, c int, cellVal map[string]interface{}) {
-	for i := range sheet.Celldata {
-		if sheet.Celldata[i].R == r && sheet.Celldata[i].C == c {
-			sheet.Celldata[i].V = cellVal
-			return
-		}
-	}
-	sheet.Celldata = append(sheet.Celldata, Cell{
-		R: r,
-		C: c,
-		V: cellVal,
-	})
-}
-
-// ensureBannerRow ensures rândul 0 (banner) exists with status message
-func ensureBannerRow(sheet *Sheet) {
-	hasBanner := false
-	for _, cell := range sheet.Celldata {
-		if cell.R == 0 && cell.C == 0 {
-			hasBanner = true
-			break
-		}
-	}
-	if !hasBanner {
-		sheet.Celldata = append(sheet.Celldata, Cell{
-			R: 0,
-			C: 0,
-			V: map[string]interface{}{
-				"v":  "✅ Sheet is available",
-				"m":  "✅ Sheet is available",
-				"bg": "#d4edda",
-				"fc": "#155724",
-			},
-		})
-	}
-}
-
-// sortByDate sorts celldata by date in column 0 (ascending)
-func sortByDate(sheet *Sheet) {
-	sort.Slice(sheet.Celldata, func(i, j int) bool {
-		ci, cj := sheet.Celldata[i], sheet.Celldata[j]
-		if ci.C != 0 || cj.C != 0 {
-			return false // not in column A
-		}
-		ri, rj := ci.R, cj.R
-		if ri == 0 || rj == 0 {
-			return ri < rj // banner first
-		}
-		// Extract date strings and compare
-		vi, _ := ci.V["v"].(string)
-		vj, _ := cj.V["v"].(string)
-		// Format is "1/2/2006", compare as-is (lexicographic works for M/D/YYYY)
-		return vi < vj
-	})
 }
