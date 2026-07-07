@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -241,6 +242,37 @@ func normalizeGateCode(code string) string {
 	return norm
 }
 
+// isPickupTimeMorning: detectează dacă ora de pickup e dimineață (12AM-12PM).
+// Acceptă formate: "9AM", "9PM", "9:30AM", "09:30AM" etc.
+func isPickupTimeMorning(timeStr string) bool {
+	if timeStr == "" {
+		return false
+	}
+	timeUpper := strings.ToUpper(strings.TrimSpace(timeStr))
+	// Detectează AM și extrage ora
+	if !strings.Contains(timeUpper, "AM") {
+		return false // Nu e AM → nu e dimineață
+	}
+	// Extrage cifra(le) de la început (ora)
+	hourStr := ""
+	for _, ch := range timeUpper {
+		if ch >= '0' && ch <= '9' {
+			hourStr += string(ch)
+		} else if ch == ':' || ch == ' ' {
+			break
+		}
+	}
+	if hourStr == "" {
+		return false
+	}
+	hour, err := strconv.Atoi(hourStr)
+	if err != nil {
+		return false
+	}
+	// 12AM-12PM e morning (0-12 inclusiv)
+	return hour >= 0 && hour <= 12
+}
+
 // newRowCells construiește celulele unui rând nou din API.
 // Aliniere: ht numeric (0=centru, 1=stânga, 2=dreapta).
 func newRowCells(l SheetLoad, isToday, isTomorrow bool) []Cell {
@@ -261,24 +293,35 @@ func newRowCells(l SheetLoad, isToday, isTomorrow bool) []Cell {
 	delivery := strings.TrimSpace(fmt.Sprintf("%s, %s %s %s",
 		l.DestCity, l.DestState, l.DeliveryDate.Format("01/02"), l.DeliveryTime))
 
+	// Detectează dacă pickup time e dimineață (12AM-12PM) pentru bold
+	isMorning := isPickupTimeMorning(l.PickupTime)
+
+	// Aplică bold la toate celulele dacă e pickup morning
+	applyBold := func(m map[string]interface{}) map[string]interface{} {
+		if isMorning {
+			m["bl"] = 1
+		}
+		return m
+	}
+
 	cells := []Cell{
-		{C: 0, V: cellA},
-		{C: 1, V: map[string]interface{}{"v": commodity, "m": commodity, "ht": 1}},              // B stânga
-		{C: 2, V: map[string]interface{}{"v": pickup, "m": pickup, "ht": 0}},                    // C centru
-		{C: 3, V: map[string]interface{}{"v": delivery, "m": delivery, "ht": 0}},                // D centru
-		{C: 4, V: map[string]interface{}{"v": "", "m": "", "ht": 0}},                            // E centru (manual)
-		{C: 5, V: map[string]interface{}{"v": l.GateCode, "m": l.GateCode, "ht": 0}},            // F centru
-		{C: 6, V: map[string]interface{}{"v": "", "m": "", "ht": 2, "bg": "#cccccc"}},           // G dreapta, gri
+		{C: 0, V: applyBold(cellA)},
+		{C: 1, V: applyBold(map[string]interface{}{"v": commodity, "m": commodity, "ht": 1})},      // B stânga
+		{C: 2, V: applyBold(map[string]interface{}{"v": pickup, "m": pickup, "ht": 0})},            // C centru
+		{C: 3, V: applyBold(map[string]interface{}{"v": delivery, "m": delivery, "ht": 0})},        // D centru
+		{C: 4, V: applyBold(map[string]interface{}{"v": "", "m": "", "ht": 0})},                    // E centru (manual)
+		{C: 5, V: applyBold(map[string]interface{}{"v": l.GateCode, "m": l.GateCode, "ht": 0})},    // F centru
+		{C: 6, V: applyBold(map[string]interface{}{"v": "", "m": "", "ht": 2, "bg": "#cccccc"})},   // G dreapta, gri
 	}
 	if l.IsHot {
-		cells = append(cells, Cell{C: 7, V: map[string]interface{}{
+		cells = append(cells, Cell{C: 7, V: applyBold(map[string]interface{}{
 			"v": "HOT", "m": "HOT", "ht": 0, "bl": 1, "fc": "#000000", "bg": "#ff0000", // H centru, bold negru, fundal roșu
-		}})
+		})})
 	}
 	if l.IsMCC && l.MccType != "" {
-		cells = append(cells, Cell{C: 8, V: map[string]interface{}{
+		cells = append(cells, Cell{C: 8, V: applyBold(map[string]interface{}{
 			"v": l.MccType, "m": l.MccType, "ht": 0, "bg": "#ffe599", // I centru, galben
-		}})
+		})})
 	}
 	return cells
 }
