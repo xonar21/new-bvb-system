@@ -129,7 +129,14 @@ func (s *Sync) Run(ctx context.Context) error {
 	tomorrow := today.AddDate(0, 0, 1)
 
 	apiGates := make(map[string]bool)
+	noGateCodeCount := 0
 	for _, load := range loads {
+		if load.GateCode == "" {
+			noGateCodeCount++
+			log.Printf("[MCC Sync] load without gateCode: %s → %s (%s)", load.OriginCity, load.DestCity, load.Equipment)
+			continue // skip loads without gate code
+		}
+
 		norm := normalizeGateCode(load.GateCode)
 		apiGates[norm] = true
 
@@ -175,7 +182,8 @@ func (s *Sync) Run(ctx context.Context) error {
 		return fmt.Errorf("save sheet: %w", err)
 	}
 
-	log.Printf("[MCC Sync] merged %d loads into sheet, saved", len(loads))
+	importedCount := len(loads) - noGateCodeCount
+	log.Printf("[MCC Sync] merged %d loads into sheet (skipped %d without gateCode), saved", importedCount, noGateCodeCount)
 
 	// Broadcast WS
 	s.wsHub.Broadcast(ws.Message{
@@ -203,7 +211,7 @@ func cellsForLoad(l SheetLoad, isToday, isTomorrow bool) map[int]map[string]inte
 
 	// A: Pickup date — right align, colored (azi=red, maine=yellow)
 	dateStr := l.PickupDate.Format("1/2/2006")
-	cellA := map[string]interface{}{"v": dateStr, "m": dateStr, "al": "right"}
+	cellA := map[string]interface{}{"v": dateStr, "m": dateStr, "ha": "right"}
 	if isToday {
 		cellA["bg"] = "#e06666" // red
 	} else if isTomorrow {
@@ -230,8 +238,10 @@ func cellsForLoad(l SheetLoad, isToday, isTomorrow bool) map[int]map[string]inte
 	// E: Empty (manual notes) — center align
 	cells[4] = map[string]interface{}{"v": "", "m": "", "al": "center"}
 
-	// F: Gate code — center align
-	cells[5] = map[string]interface{}{"v": l.GateCode, "m": l.GateCode, "al": "center"}
+	// F: Gate code — center align (skip if empty)
+	if l.GateCode != "" {
+		cells[5] = map[string]interface{}{"v": l.GateCode, "m": l.GateCode, "ha": "center"}
+	}
 
 	// G: Rate — right align, always gray background
 	cells[6] = map[string]interface{}{"v": "", "m": "", "al": "right", "bg": "#cccccc"}
