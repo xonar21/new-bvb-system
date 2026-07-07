@@ -272,7 +272,7 @@ func newRowCells(l SheetLoad, isToday, isTomorrow bool) []Cell {
 	}
 	if l.IsHot {
 		cells = append(cells, Cell{C: 7, V: map[string]interface{}{
-			"v": "HOT", "m": "HOT", "ht": 0, "bl": 1, "fc": "#ff0000", // H centru, bold, roșu
+			"v": "HOT", "m": "HOT", "ht": 0, "bl": 1, "fc": "#000000", "bg": "#ff0000", // H centru, bold negru, fundal roșu
 		}})
 	}
 	return cells
